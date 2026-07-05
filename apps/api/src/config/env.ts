@@ -5,16 +5,15 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-// When a hosting platform (Render, Heroku, etc.) provides `PORT`, map it to
-// `API_PORT` for our config and bind to `0.0.0.0` so the platform can detect
-// the open port. This avoids the default `127.0.0.1` binding which is not
-// reachable from the platform's load balancer.
-if (process.env.PORT) {
-  if (!process.env.API_PORT) process.env.API_PORT = process.env.PORT
-  if (!process.env.API_HOST) process.env.API_HOST = '0.0.0.0'
-}
-
 config({ path: resolve(__dirname, '../../../../.env') })
+
+// If a platform provides `PORT`, prefer it and force binding to 0.0.0.0 so
+// the hosting load balancer can reach the service. Load `.env` first and
+// then override any local values to ensure platform behavior wins.
+if (process.env.PORT) {
+  process.env.API_PORT = process.env.PORT
+  process.env.API_HOST = '0.0.0.0'
+}
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
