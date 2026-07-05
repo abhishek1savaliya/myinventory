@@ -5,7 +5,35 @@ import { AppError } from '../middleware/error-handler.js'
 
 const DATA_URL_PATTERN = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/
 
+let bucketEnsured = false
+
+export async function ensureProductImagesBucket(): Promise<void> {
+  if (bucketEnsured) {
+    return
+  }
+
+  const { data: buckets, error: listError } = await supabaseAdmin.storage.listBuckets()
+  if (listError) {
+    throw listError
+  }
+
+  const exists = buckets.some((bucket) => bucket.name === env.supabaseProductsBucket)
+  if (!exists) {
+    const { error: createError } = await supabaseAdmin.storage.createBucket(
+      env.supabaseProductsBucket,
+      { public: true },
+    )
+    if (createError && !createError.message.toLowerCase().includes('already exists')) {
+      throw createError
+    }
+  }
+
+  bucketEnsured = true
+}
+
 export async function uploadProductImageFromBase64(imageBase64: string): Promise<string> {
+  await ensureProductImagesBucket()
+
   const match = DATA_URL_PATTERN.exec(imageBase64)
   if (!match) {
     throw new AppError(400, 'Invalid image format. Use JPEG, PNG, or WebP.')

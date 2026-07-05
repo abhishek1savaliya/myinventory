@@ -86,6 +86,7 @@ async function addImagesToProduct(productId: string, base64List: string[]): Prom
 
   const existingCount = await assertImageCapacity(productId, base64List.length)
   const uploads: Array<{ url: string; sortOrder: number }> = []
+  let lastError: Error | null = null
 
   for (let index = 0; index < base64List.length; index += 1) {
     try {
@@ -95,11 +96,19 @@ async function addImagesToProduct(productId: string, base64List: string[]): Prom
       console.error('[addImagesToProduct] Image upload failed, skipping image')
       if (error instanceof Error) {
         console.error(error.message)
+        lastError = error
       }
     }
   }
 
-  if (uploads.length === 0) return
+  if (uploads.length === 0) {
+    throw new AppError(
+      500,
+      lastError instanceof AppError
+        ? lastError.message
+        : 'Failed to upload product images. Check Supabase product-images bucket configuration.',
+    )
+  }
 
   await prisma.productImage.createMany({
     data: uploads.map((upload) => ({
