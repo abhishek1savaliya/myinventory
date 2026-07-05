@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { StatusBadge } from '@/components/ui/status-badge'
 
 import { initScanAudio, playScanBeep } from '@/lib/scan-sound'
+import { compressImageDataUrl, compressImageFile } from '@/lib/compress-image'
 
 const emptyForm = {
   sku: '',
@@ -71,6 +72,7 @@ export function ScanPage() {
   const [imagePreview, setImagePreview] = useState(null)
   const [formError, setFormError] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [isCompressingImage, setIsCompressingImage] = useState(false)
 
   const stopScanner = useCallback(() => {
     controlsRef.current?.stop()
@@ -250,7 +252,20 @@ export function ScanPage() {
     void startScanner(deviceId)
   }
 
-  function capturePhoto() {
+  async function setCompressedPreview(dataUrl) {
+    setIsCompressingImage(true)
+    setFormError(null)
+    try {
+      const compressed = await compressImageDataUrl(dataUrl)
+      setImagePreview(compressed)
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Could not process image')
+    } finally {
+      setIsCompressingImage(false)
+    }
+  }
+
+  async function capturePhoto() {
     const video = videoRef.current
     if (!video || video.videoWidth === 0) return
 
@@ -261,21 +276,24 @@ export function ScanPage() {
     if (!context) return
 
     context.drawImage(video, 0, 0)
-    setImagePreview(canvas.toDataURL('image/jpeg', 0.85))
+    await setCompressedPreview(canvas.toDataURL('image/jpeg', 0.92))
   }
 
-  function handleImageFile(event) {
+  async function handleImageFile(event) {
     const file = event.target.files?.[0]
     if (!file) return
 
-    const reader = new FileReader()
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setImagePreview(reader.result)
-      }
+    setIsCompressingImage(true)
+    setFormError(null)
+    try {
+      const compressed = await compressImageFile(file)
+      setImagePreview(compressed)
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Could not process image')
+    } finally {
+      setIsCompressingImage(false)
+      event.target.value = ''
     }
-    reader.readAsDataURL(file)
-    event.target.value = ''
   }
 
   async function handleCreateProduct() {
@@ -285,6 +303,17 @@ export function ScanPage() {
     const barcode = form.barcode.trim()
     const name = form.name.trim() || `Product ${barcode}`
 
+    let imageBase64 = imagePreview || undefined
+    if (imageBase64) {
+      try {
+        imageBase64 = await compressImageDataUrl(imageBase64)
+      } catch (err) {
+        setFormError(err instanceof Error ? err.message : 'Could not compress image')
+        setIsSaving(false)
+        return
+      }
+    }
+
     const payload = {
       sku: form.sku.trim() || barcode,
       barcode,
@@ -292,7 +321,7 @@ export function ScanPage() {
       description: form.description.trim() || undefined,
       category: form.category.trim() || undefined,
       minimumStockLevel: Number(form.minimumStockLevel) || 0,
-      imageBase64: imagePreview || undefined,
+      imageBase64,
     }
 
     try {
@@ -401,9 +430,14 @@ export function ScanPage() {
                 Scan again
               </Button>
               {scanState === 'not-found' && (
-                <Button type="button" variant="outline" onClick={capturePhoto}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void capturePhoto()}
+                  disabled={isCompressingImage}
+                >
                   <Camera className="mr-2 h-4 w-4" />
-                  Capture photo
+                  {isCompressingImage ? 'Processing…' : 'Capture photo'}
                 </Button>
               )}
             </div>
@@ -529,9 +563,15 @@ export function ScanPage() {
                     </div>
                   )}
                   <div className="flex flex-wrap gap-2">
-                    <Button type="button" variant="outline" size="sm" onClick={capturePhoto}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void capturePhoto()}
+                      disabled={isCompressingImage}
+                    >
                       <Camera className="mr-2 h-4 w-4" />
-                      Capture
+                      {isCompressingImage ? 'Processing…' : 'Capture'}
                     </Button>
                     <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-[var(--color-border)] bg-white px-3 py-1.5 text-xs font-medium hover:bg-gray-50">
                       <input
