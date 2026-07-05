@@ -1,8 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Camera, ImagePlus, RotateCcw, ScanLine } from 'lucide-react'
+import { Camera, ImagePlus, RotateCcw, ScanLine, Trash2 } from 'lucide-react'
+import { AppFeature, UserRole } from '@myinventory/shared'
 import { apiFetch, ApiRequestError } from '@/lib/api-client'
+import { useAuth } from '@/contexts/use-auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -47,7 +49,21 @@ function shouldProcessScan(barcode, lastScanRef) {
   return true
 }
 
+function productToForm(product) {
+  return {
+    sku: product.sku,
+    barcode: product.barcode,
+    name: product.name,
+    description: product.description ?? '',
+    category: product.category ?? '',
+    minimumStockLevel: String(product.minimumStockLevel),
+  }
+}
+
 export function ScanPage() {
+  const { hasRole, hasFeature } = useAuth()
+  const canDelete =
+    hasRole(UserRole.ADMIN, UserRole.MANAGER) || hasFeature(AppFeature.PRODUCT_DELETE)
   const videoRef = useRef(null)
   const controlsRef = useRef(null)
   const scanningRef = useRef(false)
@@ -102,6 +118,8 @@ export function ScanPage() {
       try {
         const response = await apiFetch(`/api/products/barcode/${encodeURIComponent(trimmed)}`)
         setProduct(response.data)
+        setForm(productToForm(response.data))
+        setImagePreview(null)
         setScanState('found')
         playScanBeep('found')
       } catch (err) {
@@ -267,7 +285,10 @@ export function ScanPage() {
 
   async function capturePhoto() {
     const video = videoRef.current
-    if (!video || video.videoWidth === 0) return
+    if (!video || video.videoWidth === 0) {
+      document.getElementById('scan-image-file')?.click()
+      return
+    }
 
     const canvas = document.createElement('canvas')
     canvas.width = video.videoWidth
@@ -295,6 +316,74 @@ export function ScanPage() {
       event.target.value = ''
     }
   }
+
+  async function handleUpdateProduct() {
+    if (!product) return
+
+    setFormError(null)
+    setIsSaving(true)
+
+    const barcode = form.barcode.trim()
+    const name = form.name.trim() || `Product ${barcode}`
+
+    let imageBase64 = imagePreview || undefined
+    if (imageBase64) {
+      try {
+        imageBase64 = await compressImageDataUrl(imageBase64)
+      } catch (err) {
+        setFormError(err instanceof Error ? err.message : 'Could not compress image')
+        setIsSaving(false)
+        return
+      }
+    }
+
+    const payload = {
+      sku: form.sku.trim() || barcode,
+      barcode,
+      name,
+      description: form.description.trim() || undefined,
+      category: form.category.trim() || undefined,
+      minimumStockLevel: Number(form.minimumStockLevel) || 0,
+      imageBase64,
+    }
+
+    try {
+      const response = await apiFetch(`/api/products/${product.id}/from-scan`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      })
+      setProduct(response.data)
+      setForm(productToForm(response.data))
+      setImagePreview(null)
+      setScanState('found')
+      playScanBeep('created')
+    } catch (err) {
+      setFormError(formatApiError(err))
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function handleDisableProduct() {
+    if (!product || !canDelete) return
+    if (!confirm(`Disable product ${product.sku}?`)) return
+
+    setFormError(null)
+    setIsSaving(true)
+
+    try {
+      await apiFetch(`/api/products/${product.id}/disable`, { method: 'PATCH' })
+      resetScan()
+    } catch (err) {
+      setFormError(formatApiError(err))
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const showScanner = scanState === 'idle' || scanState === 'scanning' || scanState === 'error'
+  const showProductForm = scanState === 'found' || scanState === 'not-found'
+  const displayImage = imagePreview || product?.imageUrl
 
   async function handleCreateProduct() {
     setFormError(null)
@@ -330,11 +419,10 @@ export function ScanPage() {
         body: JSON.stringify(payload),
       })
       setProduct(response.data)
+      setForm(productToForm(response.data))
+      setImagePreview(null)
       setScanState('found')
       playScanBeep('created')
-      requestAnimationFrame(() => {
-        resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      })
     } catch (err) {
       setFormError(formatApiError(err))
     } finally {
@@ -352,122 +440,111 @@ export function ScanPage() {
         </p>
       </div>
 
-      <div className="flex flex-col-reverse gap-6 lg:grid lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <ScanLine className="h-5 w-5" />
-              Camera scanner
-            </CardTitle>
-            <CardDescription>
-              On mobile, the rear camera is used when available. On laptop, pick a camera below.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {cameras.length > 1 && (
-              <div className="space-y-2">
-                <Label htmlFor="camera-select">Camera</Label>
-                <select
-                  id="camera-select"
-                  className="w-full rounded-md border border-[var(--color-border)] bg-white px-3 py-2 text-sm"
-                  value={selectedCameraId}
-                  onChange={(event) => {
-                    handleCameraChange(event.target.value)
-                  }}
-                >
-                  {cameras.map((camera) => (
-                    <option key={camera.deviceId} value={camera.deviceId}>
-                      {camera.label || `Camera ${camera.deviceId.slice(0, 8)}`}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            <div className="relative overflow-hidden rounded-lg border border-[var(--color-border)] bg-black">
-              <video
-                ref={videoRef}
-                className="aspect-[4/3] w-full object-cover"
-                muted
-                playsInline
-                autoPlay
-              />
-              {!cameraStarted && !cameraError && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 p-4">
-                  <p className="text-center text-sm text-white/90">
-                    {isMobileDevice
-                      ? 'Tap below to allow camera access and start scanning.'
-                      : 'Starting camera…'}
-                  </p>
-                  {isMobileDevice && (
-                    <Button type="button" onClick={handleStartCamera}>
-                      <Camera className="mr-2 h-4 w-4" />
-                      Start camera
-                    </Button>
-                  )}
+      <div
+        className={
+          showScanner
+            ? 'flex flex-col-reverse gap-6 lg:grid lg:grid-cols-2'
+            : 'space-y-4'
+        }
+      >
+        {showScanner && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <ScanLine className="h-5 w-5" />
+                Camera scanner
+              </CardTitle>
+              <CardDescription>
+                On mobile, the rear camera is used when available. On laptop, pick a camera below.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {cameras.length > 1 && (
+                <div className="space-y-2">
+                  <Label htmlFor="camera-select">Camera</Label>
+                  <select
+                    id="camera-select"
+                    className="w-full rounded-md border border-[var(--color-border)] bg-white px-3 py-2 text-sm"
+                    value={selectedCameraId}
+                    onChange={(event) => handleCameraChange(event.target.value)}
+                  >
+                    {cameras.map((camera) => (
+                      <option key={camera.deviceId} value={camera.deviceId}>
+                        {camera.label || `Camera ${camera.deviceId.slice(0, 8)}`}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               )}
-              {isScannerActive && scanState === 'scanning' && (
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <div className="h-40 w-64 rounded-lg border-2 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
-                </div>
-              )}
-            </div>
 
-            {cameraError && (
-              <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{cameraError}</p>
-            )}
-
-            <div className="flex flex-wrap gap-2">
-              {!cameraStarted && isMobileDevice && (
-                <Button type="button" onClick={handleStartCamera}>
-                  <Camera className="mr-2 h-4 w-4" />
-                  Start camera
-                </Button>
-              )}
-              <Button type="button" variant="outline" onClick={resetScan}>
-                <RotateCcw className="mr-2 h-4 w-4" />
-                Scan again
-              </Button>
-              {scanState === 'not-found' && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void capturePhoto()}
-                  disabled={isCompressingImage}
-                >
-                  <Camera className="mr-2 h-4 w-4" />
-                  {isCompressingImage ? 'Processing…' : 'Capture photo'}
-                </Button>
-              )}
-            </div>
-
-            <div className="space-y-2 border-t border-[var(--color-border)] pt-4">
-              <Label htmlFor="manual-barcode">Manual barcode entry</Label>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
-                  id="manual-barcode"
-                  placeholder="Type or paste barcode"
-                  value={manualBarcode}
-                  onChange={(event) => setManualBarcode(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      void lookupBarcode(manualBarcode)
-                    }
-                  }}
+              <div className="relative overflow-hidden rounded-lg border border-[var(--color-border)] bg-black">
+                <video
+                  ref={videoRef}
+                  className="aspect-[4/3] w-full object-cover"
+                  muted
+                  playsInline
+                  autoPlay
                 />
-                <Button
-                  type="button"
-                  className="w-full sm:w-auto"
-                  onClick={() => void lookupBarcode(manualBarcode)}
-                  disabled={!manualBarcode.trim() || isLookingUp}
-                >
-                  Look up
-                </Button>
+                {!cameraStarted && !cameraError && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 p-4">
+                    <p className="text-center text-sm text-white/90">
+                      {isMobileDevice
+                        ? 'Tap below to allow camera access and start scanning.'
+                        : 'Starting camera…'}
+                    </p>
+                    {isMobileDevice && (
+                      <Button type="button" onClick={handleStartCamera}>
+                        <Camera className="mr-2 h-4 w-4" />
+                        Start camera
+                      </Button>
+                    )}
+                  </div>
+                )}
+                {isScannerActive && scanState === 'scanning' && (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <div className="h-40 w-64 rounded-lg border-2 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
+                  </div>
+                )}
               </div>
-            </div>
-          </CardContent>
-        </Card>
+
+              {cameraError && (
+                <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{cameraError}</p>
+              )}
+
+              <div className="flex flex-wrap gap-2">
+                {!cameraStarted && isMobileDevice && (
+                  <Button type="button" onClick={handleStartCamera}>
+                    <Camera className="mr-2 h-4 w-4" />
+                    Start camera
+                  </Button>
+                )}
+              </div>
+
+              <div className="space-y-2 border-t border-[var(--color-border)] pt-4">
+                <Label htmlFor="manual-barcode">Manual barcode entry</Label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    id="manual-barcode"
+                    placeholder="Type or paste barcode"
+                    value={manualBarcode}
+                    onChange={(event) => setManualBarcode(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') void lookupBarcode(manualBarcode)
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    className="w-full sm:w-auto"
+                    onClick={() => void lookupBarcode(manualBarcode)}
+                    disabled={!manualBarcode.trim() || isLookingUp}
+                  >
+                    Look up
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <div ref={resultRef} className="space-y-4 scroll-mt-4">
           {scanState === 'looking-up' && (
@@ -489,77 +566,59 @@ export function ScanPage() {
             </Card>
           )}
 
-          {scanState === 'found' && product && (
+          {showScanner && scanState === 'idle' && !cameraError && !isMobileDevice && !cameraStarted && (
             <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Product found</CardTitle>
-                <CardDescription>Barcode {product.barcode}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {product.imageUrl ? (
-                  <img
-                    src={product.imageUrl}
-                    alt={product.name}
-                    className="max-h-56 w-full rounded-lg border border-[var(--color-border)] object-contain bg-gray-50"
-                  />
-                ) : (
-                  <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-gray-50 text-sm text-[var(--color-muted)]">
-                    No product image
-                  </div>
-                )}
-
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-gray-900">{product.name}</span>
-                    <StatusBadge status={product.status} />
-                  </div>
-                  <p>
-                    <span className="text-[var(--color-muted)]">SKU:</span> {product.sku}
-                  </p>
-                  {product.category && (
-                    <p>
-                      <span className="text-[var(--color-muted)]">Category:</span> {product.category}
-                    </p>
-                  )}
-                  {product.description && (
-                    <p>
-                      <span className="text-[var(--color-muted)]">Description:</span>{' '}
-                      {product.description}
-                    </p>
-                  )}
-                  <p>
-                    <span className="text-[var(--color-muted)]">Min stock:</span>{' '}
-                    {product.minimumStockLevel}
-                  </p>
-                </div>
-
-                <Button type="button" onClick={resetScan}>
-                  Scan another
-                </Button>
+              <CardContent className="py-8 text-center text-sm text-[var(--color-muted)]">
+                Starting camera…
               </CardContent>
             </Card>
           )}
 
-          {scanState === 'not-found' && (
+          {showScanner && scanState === 'idle' && !cameraError && isMobileDevice && !cameraStarted && (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-[var(--color-muted)]">
+                Tap &quot;Start camera&quot; to begin scanning.
+              </CardContent>
+            </Card>
+          )}
+
+          {showScanner && scanState === 'scanning' && (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-[var(--color-muted)]">
+                Point the camera at a barcode.
+              </CardContent>
+            </Card>
+          )}
+
+          {showProductForm && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Product not found</CardTitle>
-                <CardDescription>
-                  Barcode {scannedBarcode} is not in the system. Add product details below.
-                </CardDescription>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-lg">
+                      {scanState === 'found' ? 'Product found' : 'Product not found'}
+                    </CardTitle>
+                    <CardDescription>
+                      {scanState === 'found'
+                        ? `Barcode ${product?.barcode} — edit details below`
+                        : `Barcode ${scannedBarcode} — add product details below`}
+                    </CardDescription>
+                  </div>
+                  {product?.status && <StatusBadge status={product.status} />}
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label>Product image</Label>
-                  {imagePreview ? (
+                  {displayImage ? (
                     <img
-                      src={imagePreview}
-                      alt="Product preview"
+                      src={displayImage}
+                      alt={form.name || 'Product'}
                       className="max-h-48 w-full rounded-lg border border-[var(--color-border)] object-contain bg-gray-50"
                     />
                   ) : (
                     <div className="flex h-36 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-gray-50 text-sm text-[var(--color-muted)]">
-                      Capture from camera or upload an image
+                      No product image
                     </div>
                   )}
                   <div className="flex flex-wrap gap-2">
@@ -575,6 +634,7 @@ export function ScanPage() {
                     </Button>
                     <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-[var(--color-border)] bg-white px-3 py-1.5 text-xs font-medium hover:bg-gray-50">
                       <input
+                        id="scan-image-file"
                         type="file"
                         accept="image/jpeg,image/png,image/webp"
                         className="hidden"
@@ -607,9 +667,6 @@ export function ScanPage() {
                       onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
                       placeholder={`Product ${form.barcode || 'name'}`}
                     />
-                    <p className="text-xs text-[var(--color-muted)]">
-                      Leave blank to use the default name above.
-                    </p>
                   </div>
                   <div className="space-y-2 sm:col-span-2">
                     <Label htmlFor="scan-description">Description</Label>
@@ -650,42 +707,40 @@ export function ScanPage() {
                 )}
 
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    onClick={() => void handleCreateProduct()}
-                    disabled={!form.barcode.trim() || isSaving}
-                  >
-                    {isSaving ? 'Adding…' : 'Add product'}
-                  </Button>
+                  {scanState === 'not-found' ? (
+                    <Button
+                      type="button"
+                      onClick={() => void handleCreateProduct()}
+                      disabled={!form.barcode.trim() || isSaving}
+                    >
+                      {isSaving ? 'Adding…' : 'Add product'}
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      onClick={() => void handleUpdateProduct()}
+                      disabled={!form.barcode.trim() || isSaving}
+                    >
+                      {isSaving ? 'Saving…' : 'Save changes'}
+                    </Button>
+                  )}
+                  {scanState === 'found' && canDelete && product?.status === 'ACTIVE' && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void handleDisableProduct()}
+                      disabled={isSaving}
+                      className="text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete
+                    </Button>
+                  )}
                   <Button type="button" variant="outline" onClick={resetScan}>
-                    Cancel
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Scan another
                   </Button>
                 </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {scanState === 'idle' && !cameraError && !isMobileDevice && !cameraStarted && (
-            <Card>
-              <CardContent className="py-8 text-center text-sm text-[var(--color-muted)]">
-                Starting camera…
-              </CardContent>
-            </Card>
-          )}
-
-          {scanState === 'idle' && !cameraError && isMobileDevice && !cameraStarted && (
-            <Card>
-              <CardContent className="py-8 text-center text-sm text-[var(--color-muted)]">
-                Tap &quot;Start camera&quot; to begin scanning. Camera access requires a tap on mobile
-                browsers.
-              </CardContent>
-            </Card>
-          )}
-
-          {scanState === 'scanning' && (
-            <Card>
-              <CardContent className="py-8 text-center text-sm text-[var(--color-muted)]">
-                Point the camera at a barcode. Scanning supports common 1D and 2D formats.
               </CardContent>
             </Card>
           )}

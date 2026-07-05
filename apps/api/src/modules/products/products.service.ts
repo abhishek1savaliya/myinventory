@@ -1,5 +1,5 @@
 import type { Product } from '@prisma/client'
-import type { CreateProductInput, CreateProductFromScanInput, ProductDto, ProductListQuery, UpdateProductInput } from '@myinventory/shared'
+import type { CreateProductInput, CreateProductFromScanInput, ProductDto, ProductListQuery, UpdateProductInput, UpdateProductFromScanInput } from '@myinventory/shared'
 import { ProductStatus } from '@myinventory/shared'
 import { prisma } from '@myinventory/prisma'
 import { AppError } from '../../middleware/error-handler.js'
@@ -163,6 +163,30 @@ export async function createProductFromScan(input: CreateProductFromScanInput): 
   return createProduct({
     ...productInput,
     imageUrl,
+  })
+}
+
+export async function updateProductFromScan(
+  id: string,
+  input: UpdateProductFromScanInput,
+): Promise<ProductDto> {
+  const { imageBase64, ...productInput } = input
+  let imageUrl: string | undefined
+
+  if (imageBase64) {
+    try {
+      imageUrl = await uploadProductImageFromBase64(imageBase64)
+    } catch (error) {
+      console.error('[updateProductFromScan] Image upload failed, saving product without new image')
+      if (error instanceof Error) {
+        console.error(error.message)
+      }
+    }
+  }
+
+  return updateProduct(id, {
+    ...productInput,
+    ...(imageUrl !== undefined ? { imageUrl } : {}),
   })
 }
 

@@ -5,6 +5,7 @@ import {
   createProductFromScanSchema,
   productListQuerySchema,
   updateProductSchema,
+  updateProductFromScanSchema,
 } from '@myinventory/shared'
 import { AppFeature } from '@myinventory/shared'
 import { asyncHandler } from '../../utils/async-handler.js'
@@ -13,6 +14,7 @@ import { validateQuery } from '../../middleware/validate-query.js'
 import { authenticate } from '../../middleware/auth.js'
 import { requireRoles } from '../../middleware/rbac.js'
 import { requireFeatures } from '../../middleware/feature-access.js'
+import { requireRolesOrFeatures } from '../../middleware/require-roles-or-features.js'
 import {
   createProduct,
   createProductFromScan,
@@ -21,6 +23,7 @@ import {
   getProductById,
   listProducts,
   updateProduct,
+  updateProductFromScan,
 } from './products.service.js'
 
 const manageRoles = [UserRole.ADMIN, UserRole.MANAGER]
@@ -79,6 +82,17 @@ productsRouter.post(
 )
 
 productsRouter.put(
+  '/products/:id/from-scan',
+  asyncHandler(authenticate),
+  requireFeatures(AppFeature.SCAN, AppFeature.PRODUCTS),
+  validateBody(updateProductFromScanSchema),
+  asyncHandler(async (req, res) => {
+    const product = await updateProductFromScan(req.params.id, req.body)
+    res.json({ data: product })
+  }),
+)
+
+productsRouter.put(
   '/products/:id',
   asyncHandler(authenticate),
   requireRoles(...manageRoles),
@@ -92,7 +106,7 @@ productsRouter.put(
 productsRouter.patch(
   '/products/:id/disable',
   asyncHandler(authenticate),
-  requireRoles(...manageRoles),
+  requireRolesOrFeatures(manageRoles, AppFeature.PRODUCT_DELETE),
   asyncHandler(async (req, res) => {
     const product = await disableProduct(req.params.id)
     res.json({ data: product })

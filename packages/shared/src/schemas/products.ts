@@ -40,5 +40,19 @@ export const productListQuerySchema = z.object({
 
 export type CreateProductInput = z.infer<typeof createProductSchema>
 export type CreateProductFromScanInput = z.infer<typeof createProductFromScanSchema>
+export const updateProductFromScanSchema = createProductSchema
+  .partial()
+  .extend({
+    imageBase64: z
+      .string()
+      .max(3_000_000, 'Image is too large')
+      .optional(),
+  })
+  .omit({ imageUrl: true })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: 'At least one field is required',
+  })
+
+export type UpdateProductFromScanInput = z.infer<typeof updateProductFromScanSchema>
 export type UpdateProductInput = z.infer<typeof updateProductSchema>
 export type ProductListQuery = z.infer<typeof productListQuerySchema>
