@@ -38,8 +38,12 @@ async function startServer(): Promise<void> {
     process.exit(1)
   }
 
-  const server = app.listen(env.apiPort, env.apiHost, () => {
-    console.log(`[MyInventory API] listening on http://${env.apiHost}:${env.apiPort}`)
+  // Prefer runtime-provided PORT/HOST when available (e.g., Render, Heroku).
+  const runtimePort = process.env.PORT ? Number(process.env.PORT) : env.apiPort
+  const runtimeHost = process.env.API_HOST ?? process.env.HOST ?? env.apiHost
+
+  const server = app.listen(runtimePort, runtimeHost, () => {
+    console.log(`[MyInventory API] listening on http://${runtimeHost}:${runtimePort}`)
   })
 
   server.on('error', (err: NodeJS.ErrnoException) => {
