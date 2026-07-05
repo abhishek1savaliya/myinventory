@@ -12,7 +12,7 @@ import { MAX_PRODUCT_IMAGES, ProductStatus } from '@myinventory/shared'
 import { prisma } from '@myinventory/prisma'
 import { AppError } from '../../middleware/error-handler.js'
 import { cacheGetOrSet, cacheTtl, invalidateCache, stableCacheSuffix } from '../../lib/cache.js'
-import { uploadProductImageFromBase64 } from '../../lib/product-images.js'
+import { deleteProductImagesFromUrls, uploadProductImageFromBase64 } from '../../lib/product-images.js'
 
 type ProductWithImages = Product & { images: ProductImage[] }
 
@@ -123,6 +123,16 @@ async function addImagesToProduct(productId: string, base64List: string[]): Prom
 
 async function removeImagesFromProduct(productId: string, imageIds: string[]): Promise<void> {
   if (imageIds.length === 0) return
+
+  const imagesToRemove = await prisma.productImage.findMany({
+    where: {
+      productId,
+      id: { in: imageIds },
+    },
+    select: { url: true },
+  })
+
+  await deleteProductImagesFromUrls(imagesToRemove.map((image) => image.url))
 
   await prisma.productImage.deleteMany({
     where: {
@@ -336,6 +346,12 @@ export async function updateProduct(id: string, input: UpdateProductInput): Prom
 
     if (input.imageUrl !== undefined) {
       const imageUrl = input.imageUrl?.trim() || null
+      const existingImages = await prisma.productImage.findMany({
+        where: { productId: id },
+        select: { url: true },
+      })
+
+      await deleteProductImagesFromUrls(existingImages.map((image) => image.url))
 
       await prisma.productImage.deleteMany({ where: { productId: id } })
 

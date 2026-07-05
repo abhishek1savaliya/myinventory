@@ -68,3 +68,39 @@ export async function uploadProductImageFromBase64(imageBase64: string): Promise
   const { data } = supabaseAdmin.storage.from(env.supabaseProductsBucket).getPublicUrl(objectPath)
   return data.publicUrl
 }
+
+export function extractProductImageObjectPath(publicUrl: string): string | null {
+  try {
+    const url = new URL(publicUrl)
+    const marker = `/public/${env.supabaseProductsBucket}/`
+    const index = url.pathname.indexOf(marker)
+    if (index === -1) {
+      return null
+    }
+    return decodeURIComponent(url.pathname.slice(index + marker.length))
+  } catch {
+    return null
+  }
+}
+
+export async function deleteProductImagesFromUrls(urls: string[]): Promise<void> {
+  if (urls.length === 0) {
+    return
+  }
+
+  await ensureProductImagesBucket()
+
+  const objectPaths = urls
+    .map((url) => extractProductImageObjectPath(url))
+    .filter((path): path is string => path !== null)
+
+  if (objectPaths.length === 0) {
+    return
+  }
+
+  const { error } = await supabaseAdmin.storage.from(env.supabaseProductsBucket).remove(objectPaths)
+
+  if (error) {
+    console.error('[deleteProductImagesFromUrls] Failed to delete from storage:', error.message)
+  }
+}
