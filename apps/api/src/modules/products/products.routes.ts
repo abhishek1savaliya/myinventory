@@ -22,6 +22,7 @@ import {
   getProductByBarcode,
   getProductById,
   listProducts,
+  lookupProductByBarcodeForScan,
   updateProduct,
   updateProductFromScan,
 } from './products.service.js'
@@ -45,7 +46,7 @@ productsRouter.get(
   asyncHandler(authenticate),
   requireFeatures(AppFeature.SCAN),
   asyncHandler(async (req, res) => {
-    const product = await getProductByBarcode(req.params.barcode)
+    const product = await lookupProductByBarcodeForScan(req.params.barcode)
     res.json({ data: product })
   }),
 )

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Camera, ImagePlus, RotateCcw, ScanLine, Trash2, X } from 'lucide-react'
 import { AppFeature, MAX_PRODUCT_IMAGES, UserRole } from '@myinventory/shared'
-import { apiFetch, ApiRequestError } from '@/lib/api-client'
+import { apiFetch, ApiRequestError, API_BASE_URL } from '@/lib/api-client'
 import { useAuth } from '@/contexts/use-auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,6 +13,11 @@ import { StatusBadge } from '@/components/ui/status-badge'
 
 import { initScanAudio, playScanBeep } from '@/lib/scan-sound'
 import { compressImageDataUrl, compressImageFile } from '@/lib/compress-image'
+import {
+  clearCachedBarcodeLookup,
+  getCachedBarcodeLookup,
+  setCachedBarcodeLookup,
+} from '@/lib/scan-barcode-cache'
 
 const emptyForm = {
   sku: '',
@@ -42,7 +47,7 @@ function formatApiError(err) {
 
 function shouldProcessScan(barcode, lastScanRef) {
   const now = Date.now()
-  if (lastScanRef.current.barcode === barcode && now - lastScanRef.current.at < 2500) {
+  if (lastScanRef.current.barcode === barcode && now - lastScanRef.current.at < 1200) {
     return false
   }
   lastScanRef.current = { barcode, at: now }
@@ -68,6 +73,8 @@ export function ScanPage() {
   const controlsRef = useRef(null)
   const scanningRef = useRef(false)
   const lastScanRef = useRef({ barcode: '', at: 0 })
+  const lookupInFlightRef = useRef(false)
+  const zxingRef = useRef(null)
   const resultRef = useRef(null)
 
   const [cameras, setCameras] = useState([])
@@ -104,11 +111,38 @@ export function ScanPage() {
     setIsScannerActive(false)
   }, [])
 
+  const loadZxing = useCallback(async () => {
+    if (zxingRef.current) {
+      return zxingRef.current
+    }
+
+    const [{ BrowserMultiFormatReader }, { BarcodeFormat, DecodeHintType }] = await Promise.all([
+      import('@zxing/browser'),
+      import('@zxing/library'),
+    ])
+
+    const hints = new Map()
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+      BarcodeFormat.EAN_13,
+      BarcodeFormat.EAN_8,
+      BarcodeFormat.UPC_A,
+      BarcodeFormat.UPC_E,
+      BarcodeFormat.CODE_128,
+      BarcodeFormat.CODE_39,
+    ])
+
+    zxingRef.current = { BrowserMultiFormatReader, hints }
+    return zxingRef.current
+  }, [])
+
   const lookupBarcode = useCallback(
     async (barcode) => {
       const trimmed = barcode.trim()
-      if (!trimmed || !shouldProcessScan(trimmed, lastScanRef)) return
+      if (!trimmed || !shouldProcessScan(trimmed, lastScanRef) || lookupInFlightRef.current) {
+        return
+      }
 
+      lookupInFlightRef.current = true
       stopScanner()
       setScannedBarcode(trimmed)
       setLookupError(null)
@@ -116,36 +150,62 @@ export function ScanPage() {
       setIsLookingUp(true)
       setScanState('looking-up')
 
-      try {
-        const response = await apiFetch(`/api/products/barcode/${encodeURIComponent(trimmed)}`)
-        setProduct(response.data)
-        setForm(productToForm(response.data))
+      const finishLookup = () => {
+        lookupInFlightRef.current = false
+        setIsLookingUp(false)
+        requestAnimationFrame(() => {
+          resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        })
+      }
+
+      const applyFound = (data) => {
+        setProduct(data)
+        setForm(productToForm(data))
         setPendingImages([])
         setRemovedImageIds([])
         setScanState('found')
         playScanBeep('found')
+      }
+
+      const applyNotFound = () => {
+        setForm({
+          ...emptyForm,
+          barcode: trimmed,
+          sku: trimmed,
+          name: `Product ${trimmed}`,
+        })
+        setPendingImages([])
+        setRemovedImageIds([])
+        setFormError(null)
+        setScanState('not-found')
+        playScanBeep('not-found')
+      }
+
+      const cached = getCachedBarcodeLookup(trimmed)
+      if (cached) {
+        if (cached.type === 'found') {
+          applyFound(cached.product)
+        } else {
+          applyNotFound()
+        }
+        finishLookup()
+        return
+      }
+
+      try {
+        const response = await apiFetch(`/api/products/barcode/${encodeURIComponent(trimmed)}`)
+        setCachedBarcodeLookup(trimmed, { type: 'found', product: response.data })
+        applyFound(response.data)
       } catch (err) {
         if (err instanceof ApiRequestError && err.statusCode === 404) {
-          setForm({
-            ...emptyForm,
-            barcode: trimmed,
-            sku: trimmed,
-            name: `Product ${trimmed}`,
-          })
-          setPendingImages([])
-          setRemovedImageIds([])
-          setFormError(null)
-          setScanState('not-found')
-          playScanBeep('not-found')
+          setCachedBarcodeLookup(trimmed, { type: 'not-found' })
+          applyNotFound()
         } else {
           setLookupError(formatApiError(err))
           setScanState('error')
         }
       } finally {
-        setIsLookingUp(false)
-        requestAnimationFrame(() => {
-          resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        })
+        finishLookup()
       }
     },
     [stopScanner],
@@ -171,25 +231,38 @@ export function ScanPage() {
       setScanState('scanning')
 
       try {
-        const { BrowserMultiFormatReader } = await import('@zxing/browser')
-        const reader = new BrowserMultiFormatReader()
+        const { BrowserMultiFormatReader, hints } = await loadZxing()
+        const reader = new BrowserMultiFormatReader(hints)
 
         if (!videoRef.current) {
           throw new Error('Camera preview is not ready')
         }
 
-        // undefined deviceId → rear camera via facingMode: 'environment' (required on mobile)
-        const effectiveDeviceId = deviceId || undefined
+        const onDecode = (result) => {
+          if (result) {
+            void lookupBarcode(result.getText())
+          }
+        }
 
-        const controls = await reader.decodeFromVideoDevice(
-          effectiveDeviceId,
-          videoRef.current,
-          (result) => {
-            if (result) {
-              void lookupBarcode(result.getText())
+        const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+        const videoConstraints = mobile
+          ? {
+              facingMode: { ideal: 'environment' },
+              width: { ideal: 640, max: 1280 },
+              height: { ideal: 480, max: 720 },
             }
-          },
-        )
+          : { width: { ideal: 1280 }, height: { ideal: 720 } }
+
+        let controls
+        if (deviceId) {
+          controls = await reader.decodeFromVideoDevice(deviceId, videoRef.current, onDecode)
+        } else {
+          controls = await reader.decodeFromConstraints(
+            { video: videoConstraints },
+            videoRef.current,
+            onDecode,
+          )
+        }
 
         controlsRef.current = controls
         setIsScannerActive(true)
@@ -230,12 +303,27 @@ export function ScanPage() {
         scanningRef.current = false
       }
     },
-    [lookupBarcode, refreshCameras, stopScanner],
+    [lookupBarcode, refreshCameras, stopScanner, loadZxing],
   )
 
   useEffect(() => {
     const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
     setIsMobileDevice(mobile)
+
+    void loadZxing()
+
+    if (API_BASE_URL) {
+      try {
+        const origin = new URL(API_BASE_URL).origin
+        const link = document.createElement('link')
+        link.rel = 'preconnect'
+        link.href = origin
+        link.crossOrigin = 'anonymous'
+        document.head.appendChild(link)
+      } catch {
+        // ignore invalid API URL
+      }
+    }
 
     // Desktop browsers allow auto-start; mobile (especially iOS) requires a user tap
     if (!mobile) {
@@ -400,6 +488,8 @@ export function ScanPage() {
       setForm(productToForm(response.data))
       setPendingImages([])
       setRemovedImageIds([])
+      clearCachedBarcodeLookup(barcode)
+      setCachedBarcodeLookup(barcode, { type: 'found', product: response.data })
       setScanState('found')
       playScanBeep('created')
     } catch (err) {
@@ -464,6 +554,8 @@ export function ScanPage() {
       setForm(productToForm(response.data))
       setPendingImages([])
       setRemovedImageIds([])
+      clearCachedBarcodeLookup(barcode)
+      setCachedBarcodeLookup(barcode, { type: 'found', product: response.data })
       setScanState('found')
       playScanBeep('created')
     } catch (err) {

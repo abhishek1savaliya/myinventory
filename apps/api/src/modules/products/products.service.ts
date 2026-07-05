@@ -250,6 +250,22 @@ export async function getProductByBarcode(barcode: string): Promise<ProductDto> 
   )
 }
 
+/** Fast path for scan — skips Redis to reduce lookup latency. */
+export async function lookupProductByBarcodeForScan(barcode: string): Promise<ProductDto> {
+  const normalizedBarcode = barcode.trim()
+
+  const product = await prisma.product.findUnique({
+    where: { barcode: normalizedBarcode },
+    include: { images: { orderBy: { sortOrder: 'asc' } } },
+  })
+
+  if (!product) {
+    throw new AppError(404, 'Product not found')
+  }
+
+  return toProductDto(product, product.images)
+}
+
 export async function createProduct(input: CreateProductInput): Promise<ProductDto> {
   try {
     const imageUrl = input.imageUrl?.trim() || null
