@@ -9,6 +9,8 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/status-badge'
 
+import { initScanAudio, playScanBeep } from '@/lib/scan-sound'
+
 const emptyForm = {
   sku: '',
   barcode: '',
@@ -18,10 +20,38 @@ const emptyForm = {
   minimumStockLevel: '0',
 }
 
+function formatApiError(err) {
+  if (err instanceof ApiRequestError) {
+    if (err.details?.fieldErrors) {
+      return Object.entries(err.details.fieldErrors)
+        .flatMap(([field, messages]) =>
+          (messages ?? []).map((message) => `${field}: ${message}`),
+        )
+        .join('. ')
+    }
+    if (Array.isArray(err.details) && err.details.length > 0) {
+      return err.details.map((item) => item.message).join('. ')
+    }
+    return err.message
+  }
+  return err instanceof Error ? err.message : 'Something went wrong'
+}
+
+function shouldProcessScan(barcode, lastScanRef) {
+  const now = Date.now()
+  if (lastScanRef.current.barcode === barcode && now - lastScanRef.current.at < 2500) {
+    return false
+  }
+  lastScanRef.current = { barcode, at: now }
+  return true
+}
+
 export function ScanPage() {
   const videoRef = useRef(null)
   const controlsRef = useRef(null)
   const scanningRef = useRef(false)
+  const lastScanRef = useRef({ barcode: '', at: 0 })
+  const resultRef = useRef(null)
 
   const [cameras, setCameras] = useState([])
   const [selectedCameraId, setSelectedCameraId] = useState('')
@@ -58,7 +88,7 @@ export function ScanPage() {
   const lookupBarcode = useCallback(
     async (barcode) => {
       const trimmed = barcode.trim()
-      if (!trimmed) return
+      if (!trimmed || !shouldProcessScan(trimmed, lastScanRef)) return
 
       stopScanner()
       setScannedBarcode(trimmed)
@@ -71,22 +101,28 @@ export function ScanPage() {
         const response = await apiFetch(`/api/products/barcode/${encodeURIComponent(trimmed)}`)
         setProduct(response.data)
         setScanState('found')
+        playScanBeep('found')
       } catch (err) {
         if (err instanceof ApiRequestError && err.statusCode === 404) {
           setForm({
             ...emptyForm,
             barcode: trimmed,
             sku: trimmed,
+            name: `Product ${trimmed}`,
           })
           setImagePreview(null)
           setFormError(null)
           setScanState('not-found')
+          playScanBeep('not-found')
         } else {
-          setLookupError(err instanceof Error ? err.message : 'Failed to look up product')
+          setLookupError(formatApiError(err))
           setScanState('error')
         }
       } finally {
         setIsLookingUp(false)
+        requestAnimationFrame(() => {
+          resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        })
       }
     },
     [stopScanner],
@@ -204,6 +240,7 @@ export function ScanPage() {
   }
 
   function handleStartCamera() {
+    initScanAudio()
     void startScanner(selectedCameraId || undefined)
   }
 
@@ -245,10 +282,13 @@ export function ScanPage() {
     setFormError(null)
     setIsSaving(true)
 
+    const barcode = form.barcode.trim()
+    const name = form.name.trim() || `Product ${barcode}`
+
     const payload = {
-      sku: form.sku.trim() || form.barcode.trim(),
-      barcode: form.barcode.trim(),
-      name: form.name.trim(),
+      sku: form.sku.trim() || barcode,
+      barcode,
+      name,
       description: form.description.trim() || undefined,
       category: form.category.trim() || undefined,
       minimumStockLevel: Number(form.minimumStockLevel) || 0,
@@ -262,8 +302,12 @@ export function ScanPage() {
       })
       setProduct(response.data)
       setScanState('found')
+      playScanBeep('created')
+      requestAnimationFrame(() => {
+        resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
     } catch (err) {
-      setFormError(err instanceof ApiRequestError ? err.message : 'Failed to create product')
+      setFormError(formatApiError(err))
     } finally {
       setIsSaving(false)
     }
@@ -279,7 +323,7 @@ export function ScanPage() {
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="flex flex-col-reverse gap-6 lg:grid lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
@@ -391,7 +435,7 @@ export function ScanPage() {
           </CardContent>
         </Card>
 
-        <div className="space-y-4">
+        <div ref={resultRef} className="space-y-4 scroll-mt-4">
           {scanState === 'looking-up' && (
             <Card>
               <CardContent className="py-8 text-center text-sm text-[var(--color-muted)]">
@@ -521,8 +565,11 @@ export function ScanPage() {
                       id="scan-name"
                       value={form.name}
                       onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-                      placeholder="Required"
+                      placeholder={`Product ${form.barcode || 'name'}`}
                     />
+                    <p className="text-xs text-[var(--color-muted)]">
+                      Leave blank to use the default name above.
+                    </p>
                   </div>
                   <div className="space-y-2 sm:col-span-2">
                     <Label htmlFor="scan-description">Description</Label>
@@ -566,7 +613,7 @@ export function ScanPage() {
                   <Button
                     type="button"
                     onClick={() => void handleCreateProduct()}
-                    disabled={!form.name.trim() || isSaving}
+                    disabled={!form.barcode.trim() || isSaving}
                   >
                     {isSaving ? 'Adding…' : 'Add product'}
                   </Button>

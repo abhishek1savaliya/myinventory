@@ -150,7 +150,14 @@ export async function createProductFromScan(input: CreateProductFromScanInput): 
   let imageUrl: string | undefined
 
   if (imageBase64) {
-    imageUrl = await uploadProductImageFromBase64(imageBase64)
+    try {
+      imageUrl = await uploadProductImageFromBase64(imageBase64)
+    } catch (error) {
+      console.error('[createProductFromScan] Image upload failed, saving product without image')
+      if (error instanceof Error) {
+        console.error(error.message)
+      }
+    }
   }
 
   return createProduct({
