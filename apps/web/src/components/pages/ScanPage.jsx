@@ -180,6 +180,7 @@ export function ScanPage() {
       }
 
       lookupInFlightRef.current = true
+      playScanBeep('scanned')
       stopScanner()
       setScannedBarcode(trimmed)
       setLookupError(null)
@@ -201,7 +202,6 @@ export function ScanPage() {
         setPendingImages([])
         setRemovedImageIds([])
         setScanState('found')
-        playScanBeep('found')
       }
 
       const applyNotFound = () => {
@@ -215,7 +215,6 @@ export function ScanPage() {
         setRemovedImageIds([])
         setFormError(null)
         setScanState('not-found')
-        playScanBeep('not-found')
       }
 
       const cached = getCachedBarcodeLookup(trimmed)
