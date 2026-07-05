@@ -20,7 +20,7 @@ export function Dialog({ open, onClose, title, description, children, className 
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
       <button
         type="button"
         className="absolute inset-0 bg-black/40"
@@ -29,22 +29,22 @@ export function Dialog({ open, onClose, title, description, children, className 
       />
       <div
         className={cn(
-          'relative z-10 w-full max-w-lg rounded-lg border border-[var(--color-border)] bg-white shadow-lg',
+          'relative z-10 flex max-h-[92dvh] w-full flex-col rounded-t-xl border border-[var(--color-border)] bg-white shadow-lg sm:max-h-[90vh] sm:max-w-lg sm:rounded-lg',
           className,
         )}
       >
-        <div className="flex items-start justify-between border-b border-[var(--color-border)] px-6 py-4">
-          <div>
+        <div className="flex shrink-0 items-start justify-between border-b border-[var(--color-border)] px-4 py-4 sm:px-6">
+          <div className="min-w-0 pr-2">
             <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
             {description && (
               <p className="mt-1 text-sm text-[var(--color-muted)]">{description}</p>
             )}
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose} className="h-8 w-8 p-0">
+          <Button variant="ghost" size="sm" onClick={onClose} className="h-8 w-8 shrink-0 p-0">
             <X className="h-4 w-4" />
           </Button>
         </div>
-        <div className="px-6 py-4">{children}</div>
+        <div className="overflow-y-auto px-4 py-4 sm:px-6">{children}</div>
       </div>
     </div>
   )

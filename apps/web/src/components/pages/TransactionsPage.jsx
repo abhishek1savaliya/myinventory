@@ -133,7 +133,7 @@ export function TransactionsPage() {
         </div>
       </div>
 
-      <div className="mb-3 flex items-center justify-between text-sm text-[var(--color-muted)]">
+      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between text-sm text-[var(--color-muted)]">
         <span>
           {total} transaction{total === 1 ? '' : 's'} total
         </span>

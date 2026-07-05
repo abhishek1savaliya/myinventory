@@ -123,7 +123,7 @@ export function ProductsPage() {
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between gap-4">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-2xl font-semibold text-gray-900">Products</h2>
           <p className="text-sm text-[var(--color-muted)]">Manage product catalogue and barcodes</p>
@@ -131,12 +131,12 @@ export function ProductsPage() {
         {canManage && <Button onClick={openCreate}>Add product</Button>}
       </div>
 
-      <div className="mb-4 flex gap-2">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row">
         <Input
           placeholder="Search by SKU, barcode, or name..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="max-w-md"
+          className="w-full sm:max-w-md"
         />
         <Button variant="outline" onClick={() => void loadProducts()}>
           Search
@@ -156,8 +156,8 @@ export function ProductsPage() {
           <p className="text-sm text-[var(--color-muted)]">No products found</p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-[var(--color-border)] bg-white">
-          <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto rounded-lg border border-[var(--color-border)] bg-white">
+          <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="border-b border-[var(--color-border)] bg-gray-50">
               <tr>
                 <th className="px-4 py-3 font-medium text-gray-700">SKU</th>
@@ -208,7 +208,7 @@ export function ProductsPage() {
         description="SKU and barcode must be unique across the catalogue."
       >
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="sku">SKU</Label>
               <Input
@@ -234,7 +234,7 @@ export function ProductsPage() {
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="category">Category</Label>
               <Input
@@ -267,7 +267,7 @@ export function ProductsPage() {
               {formError}
             </div>
           )}
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               Cancel
             </Button>

@@ -47,7 +47,7 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex h-full items-center justify-center bg-[var(--color-background)] p-6">
+    <div className="flex h-full items-center justify-center bg-[var(--color-background)] p-4 sm:p-6">
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle>Sign in to MyInventory</CardTitle>

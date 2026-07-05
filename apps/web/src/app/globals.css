@@ -31,4 +31,19 @@ body {
   background: var(--color-background);
   color: #111827;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+.main-content {
+  padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+@media (min-width: 1024px) {
+  .main-content {
+    padding-bottom: 1.5rem;
+  }
+}
+
+.mobile-bottom-nav {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }

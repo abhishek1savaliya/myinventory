@@ -21,9 +21,12 @@ const emptyForm = {
 export function ScanPage() {
   const videoRef = useRef(null)
   const controlsRef = useRef(null)
+  const scanningRef = useRef(false)
 
   const [cameras, setCameras] = useState([])
   const [selectedCameraId, setSelectedCameraId] = useState('')
+  const [cameraStarted, setCameraStarted] = useState(false)
+  const [isMobileDevice, setIsMobileDevice] = useState(false)
   const [isScannerActive, setIsScannerActive] = useState(false)
   const [cameraError, setCameraError] = useState(null)
   const [manualBarcode, setManualBarcode] = useState('')
@@ -89,8 +92,22 @@ export function ScanPage() {
     [stopScanner],
   )
 
+  const refreshCameras = useCallback(async () => {
+    try {
+      const { BrowserMultiFormatReader } = await import('@zxing/browser')
+      const devices = await BrowserMultiFormatReader.listVideoInputDevices()
+      setCameras(devices)
+      return devices
+    } catch {
+      return []
+    }
+  }, [])
+
   const startScanner = useCallback(
     async (deviceId) => {
+      if (scanningRef.current) return
+      scanningRef.current = true
+
       setCameraError(null)
       setScanState('scanning')
 
@@ -102,71 +119,76 @@ export function ScanPage() {
           throw new Error('Camera preview is not ready')
         }
 
-        const controls = await reader.decodeFromVideoDevice(deviceId, videoRef.current, (result) => {
-          if (result) {
-            void lookupBarcode(result.getText())
-          }
-        })
+        // undefined deviceId → rear camera via facingMode: 'environment' (required on mobile)
+        const effectiveDeviceId = deviceId || undefined
+
+        const controls = await reader.decodeFromVideoDevice(
+          effectiveDeviceId,
+          videoRef.current,
+          (result) => {
+            if (result) {
+              void lookupBarcode(result.getText())
+            }
+          },
+        )
 
         controlsRef.current = controls
         setIsScannerActive(true)
+        setCameraStarted(true)
+
+        const devices = await refreshCameras()
+        if (deviceId) {
+          setSelectedCameraId(deviceId)
+        } else if (devices.length > 0) {
+          const preferredDevice =
+            devices.find((device) => /back|rear|environment/i.test(device.label)) ??
+            devices[devices.length - 1] ??
+            devices[0]
+          if (preferredDevice) {
+            setSelectedCameraId(preferredDevice.deviceId)
+          }
+        }
       } catch (err) {
-        setCameraError(
-          err instanceof Error
-            ? err.message
-            : 'Unable to access camera. Check browser permissions or choose another camera.',
-        )
+        let message = 'Unable to access camera. Check browser permissions or choose another camera.'
+
+        if (err instanceof Error) {
+          if (err.name === 'NotAllowedError') {
+            message = 'Camera permission denied. Allow camera access in your browser settings and try again.'
+          } else if (err.name === 'NotFoundError') {
+            message = 'No camera found on this device.'
+          } else if (err.name === 'NotReadableError') {
+            message = 'Camera is in use by another app. Close it and try again.'
+          } else {
+            message = err.message
+          }
+        }
+
+        setCameraError(message)
         setScanState('idle')
+        setCameraStarted(false)
         stopScanner()
+      } finally {
+        scanningRef.current = false
       }
     },
-    [lookupBarcode, stopScanner],
+    [lookupBarcode, refreshCameras, stopScanner],
   )
 
   useEffect(() => {
-    let cancelled = false
+    const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+    setIsMobileDevice(mobile)
 
-    async function initCameras() {
-      try {
-        const { BrowserMultiFormatReader } = await import('@zxing/browser')
-        const devices = await BrowserMultiFormatReader.listVideoInputDevices()
-        if (cancelled) return
-
-        setCameras(devices)
-
-        const preferredDevice =
-          devices.find((device) => /back|rear|environment/i.test(device.label)) ??
-          devices[devices.length - 1] ??
-          devices[0]
-
-        if (preferredDevice) {
-          setSelectedCameraId(preferredDevice.deviceId)
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setCameraError(
-            err instanceof Error ? err.message : 'Unable to list cameras for this device.',
-          )
-        }
-      }
+    // Desktop browsers allow auto-start; mobile (especially iOS) requires a user tap
+    if (!mobile) {
+      void startScanner(undefined)
     }
-
-    void initCameras()
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!selectedCameraId) return
-
-    void startScanner(selectedCameraId)
 
     return () => {
       stopScanner()
     }
-  }, [selectedCameraId, startScanner, stopScanner])
+    // Mount/unmount only — mobile must start camera from a button tap
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function resetScan() {
     stopScanner()
@@ -178,9 +200,17 @@ export function ScanPage() {
     setFormError(null)
     setManualBarcode('')
     setScanState('idle')
-    if (selectedCameraId) {
-      void startScanner(selectedCameraId)
-    }
+    void startScanner(selectedCameraId || undefined)
+  }
+
+  function handleStartCamera() {
+    void startScanner(selectedCameraId || undefined)
+  }
+
+  function handleCameraChange(deviceId) {
+    stopScanner()
+    setSelectedCameraId(deviceId)
+    void startScanner(deviceId)
   }
 
   function capturePhoto() {
@@ -242,7 +272,7 @@ export function ScanPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="mb-1 text-2xl font-semibold text-gray-900">Scan</h2>
+        <h2 className="mb-1 text-xl font-semibold text-gray-900 sm:text-2xl">Scan</h2>
         <p className="text-sm text-[var(--color-muted)]">
           Scan a barcode with your camera. If the product exists, details will appear. Otherwise you
           can add it with a photo.
@@ -269,8 +299,7 @@ export function ScanPage() {
                   className="w-full rounded-md border border-[var(--color-border)] bg-white px-3 py-2 text-sm"
                   value={selectedCameraId}
                   onChange={(event) => {
-                    stopScanner()
-                    setSelectedCameraId(event.target.value)
+                    handleCameraChange(event.target.value)
                   }}
                 >
                   {cameras.map((camera) => (
@@ -288,7 +317,23 @@ export function ScanPage() {
                 className="aspect-[4/3] w-full object-cover"
                 muted
                 playsInline
+                autoPlay
               />
+              {!cameraStarted && !cameraError && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 p-4">
+                  <p className="text-center text-sm text-white/90">
+                    {isMobileDevice
+                      ? 'Tap below to allow camera access and start scanning.'
+                      : 'Starting camera…'}
+                  </p>
+                  {isMobileDevice && (
+                    <Button type="button" onClick={handleStartCamera}>
+                      <Camera className="mr-2 h-4 w-4" />
+                      Start camera
+                    </Button>
+                  )}
+                </div>
+              )}
               {isScannerActive && scanState === 'scanning' && (
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                   <div className="h-40 w-64 rounded-lg border-2 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
@@ -301,6 +346,12 @@ export function ScanPage() {
             )}
 
             <div className="flex flex-wrap gap-2">
+              {!cameraStarted && isMobileDevice && (
+                <Button type="button" onClick={handleStartCamera}>
+                  <Camera className="mr-2 h-4 w-4" />
+                  Start camera
+                </Button>
+              )}
               <Button type="button" variant="outline" onClick={resetScan}>
                 <RotateCcw className="mr-2 h-4 w-4" />
                 Scan again
@@ -315,7 +366,7 @@ export function ScanPage() {
 
             <div className="space-y-2 border-t border-[var(--color-border)] pt-4">
               <Label htmlFor="manual-barcode">Manual barcode entry</Label>
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Input
                   id="manual-barcode"
                   placeholder="Type or paste barcode"
@@ -329,6 +380,7 @@ export function ScanPage() {
                 />
                 <Button
                   type="button"
+                  className="w-full sm:w-auto"
                   onClick={() => void lookupBarcode(manualBarcode)}
                   disabled={!manualBarcode.trim() || isLookingUp}
                 >
@@ -526,10 +578,19 @@ export function ScanPage() {
             </Card>
           )}
 
-          {scanState === 'idle' && !cameraError && (
+          {scanState === 'idle' && !cameraError && !isMobileDevice && !cameraStarted && (
             <Card>
               <CardContent className="py-8 text-center text-sm text-[var(--color-muted)]">
                 Starting camera…
+              </CardContent>
+            </Card>
+          )}
+
+          {scanState === 'idle' && !cameraError && isMobileDevice && !cameraStarted && (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-[var(--color-muted)]">
+                Tap &quot;Start camera&quot; to begin scanning. Camera access requires a tap on mobile
+                browsers.
               </CardContent>
             </Card>
           )}

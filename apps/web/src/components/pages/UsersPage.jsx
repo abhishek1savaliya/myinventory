@@ -32,8 +32,8 @@ function UserTable({ users, currentUserId, onDisable, onActivate, onManageFeatur
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-[var(--color-border)] bg-white">
-      <table className="w-full text-left text-sm">
+    <div className="overflow-x-auto rounded-lg border border-[var(--color-border)] bg-white">
+      <table className="w-full min-w-[720px] text-left text-sm">
         <thead className="border-b border-[var(--color-border)] bg-gray-50">
           <tr>
             <th className="px-4 py-3 font-medium text-gray-700">Name</th>
@@ -181,7 +181,7 @@ export function UsersPage() {
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between gap-4">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-2xl font-semibold text-gray-900">Users</h2>
           <p className="text-sm text-[var(--color-muted)]">

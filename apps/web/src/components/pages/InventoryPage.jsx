@@ -41,12 +41,12 @@ export function InventoryPage() {
         </p>
       </div>
 
-      <div className="mb-4 flex gap-2">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row">
         <Input
           placeholder="Search SKU, barcode, or product name..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="max-w-md"
+          className="w-full sm:max-w-md"
         />
         <Button variant="outline" onClick={() => void loadInventory()}>
           Search
@@ -66,8 +66,8 @@ export function InventoryPage() {
           <p className="text-sm text-[var(--color-muted)]">No inventory records found</p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-[var(--color-border)] bg-white">
-          <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto rounded-lg border border-[var(--color-border)] bg-white">
+          <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="border-b border-[var(--color-border)] bg-gray-50">
               <tr>
                 <th className="px-4 py-3 font-medium text-gray-700">SKU</th>

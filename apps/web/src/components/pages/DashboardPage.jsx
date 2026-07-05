@@ -73,7 +73,7 @@ export function DashboardPage() {
       </div>
 
       <div className="rounded-lg border border-[var(--color-border)] bg-white">
-        <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
+        <div className="flex flex-col gap-2 border-b border-[var(--color-border)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <h3 className="font-medium text-gray-900">Recent transactions</h3>
           <Link href="/transactions" className="text-sm text-[var(--color-primary)] hover:underline">
             View all logs
@@ -84,7 +84,8 @@ export function DashboardPage() {
         ) : recentTransactions.length === 0 ? (
           <p className="p-4 text-sm text-[var(--color-muted)]">No transactions yet</p>
         ) : (
-          <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[480px] text-left text-sm">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-4 py-2 font-medium text-gray-700">Date</th>
@@ -108,6 +109,7 @@ export function DashboardPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>
