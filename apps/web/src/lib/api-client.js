@@ -1,8 +1,18 @@
 import { clearStoredSession, getStoredSessionId } from './auth-storage'
 
-export const API_BASE_URL =
+function normalizeApiBaseUrl(url) {
+  if (!url) return url
+  let normalized = url.trim().replace(/\/+$/, '')
+  if (normalized.endsWith('/api')) {
+    normalized = normalized.slice(0, -4)
+  }
+  return normalized
+}
+
+export const API_BASE_URL = normalizeApiBaseUrl(
   process.env.NEXT_PUBLIC_API_URL ??
-  (process.env.NODE_ENV === 'development' ? 'http://127.0.0.1:3847' : '')
+    (process.env.NODE_ENV === 'development' ? 'http://127.0.0.1:3847' : ''),
+)
 
 export class ApiRequestError extends Error {
   constructor(message, statusCode, details) {
@@ -64,7 +74,10 @@ export async function apiFetch(path, init) {
     }
 
     throw new ApiRequestError(
-      error.message ?? `Request failed: ${response.status}`,
+      error.message ??
+        (response.status === 404
+          ? 'API route not found — check NEXT_PUBLIC_API_URL (use base URL without /api suffix)'
+          : `Request failed: ${response.status}`),
       response.status,
       error.details,
     )

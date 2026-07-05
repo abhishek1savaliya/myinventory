@@ -12,6 +12,7 @@ services:
       npm run build -w @myinventory/shared && \
       npm run db:generate && \
       npm run db:build && \
+      npm run migrate:deploy -w @myinventory/prisma && \
       npm run build -w @myinventory/api
     startCommand: npm run start -w @myinventory/api
     envVars:
