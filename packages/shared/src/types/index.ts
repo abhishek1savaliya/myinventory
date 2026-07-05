@@ -55,7 +55,7 @@ export interface PaginatedResponse<T> {
 }
 
 export type { AuthUser, LoginResponse, JwtPayload } from './auth.js'
-export type { ProductDto, WarehouseDto, LocationDto } from './catalog.js'
+export type { ProductDto, ProductImageDto, WarehouseDto, LocationDto } from './catalog.js'
 export type {
   InventoryItemDto,
   InventoryTransactionDto,

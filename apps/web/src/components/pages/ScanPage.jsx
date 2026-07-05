@@ -1,8 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Camera, ImagePlus, RotateCcw, ScanLine, Trash2 } from 'lucide-react'
-import { AppFeature, UserRole } from '@myinventory/shared'
+import { Camera, ImagePlus, RotateCcw, ScanLine, Trash2, X } from 'lucide-react'
+import { AppFeature, MAX_PRODUCT_IMAGES, UserRole } from '@myinventory/shared'
 import { apiFetch, ApiRequestError } from '@/lib/api-client'
 import { useAuth } from '@/contexts/use-auth'
 import { Button } from '@/components/ui/button'
@@ -85,7 +85,8 @@ export function ScanPage() {
   const [isLookingUp, setIsLookingUp] = useState(false)
 
   const [form, setForm] = useState(emptyForm)
-  const [imagePreview, setImagePreview] = useState(null)
+  const [pendingImages, setPendingImages] = useState([])
+  const [removedImageIds, setRemovedImageIds] = useState([])
   const [formError, setFormError] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
   const [isCompressingImage, setIsCompressingImage] = useState(false)
@@ -119,7 +120,8 @@ export function ScanPage() {
         const response = await apiFetch(`/api/products/barcode/${encodeURIComponent(trimmed)}`)
         setProduct(response.data)
         setForm(productToForm(response.data))
-        setImagePreview(null)
+        setPendingImages([])
+        setRemovedImageIds([])
         setScanState('found')
         playScanBeep('found')
       } catch (err) {
@@ -130,7 +132,8 @@ export function ScanPage() {
             sku: trimmed,
             name: `Product ${trimmed}`,
           })
-          setImagePreview(null)
+          setPendingImages([])
+          setRemovedImageIds([])
           setFormError(null)
           setScanState('not-found')
           playScanBeep('not-found')
@@ -252,7 +255,8 @@ export function ScanPage() {
     setProduct(null)
     setLookupError(null)
     setForm(emptyForm)
-    setImagePreview(null)
+    setPendingImages([])
+    setRemovedImageIds([])
     setFormError(null)
     setManualBarcode('')
     setScanState('idle')
@@ -270,12 +274,21 @@ export function ScanPage() {
     void startScanner(deviceId)
   }
 
-  async function setCompressedPreview(dataUrl) {
+  const savedImages = (product?.images ?? []).filter((image) => !removedImageIds.includes(image.id))
+  const totalImages = savedImages.length + pendingImages.length
+  const canAddMoreImages = totalImages < MAX_PRODUCT_IMAGES
+
+  async function addPendingImage(dataUrl) {
+    if (!canAddMoreImages) {
+      setFormError(`Maximum ${MAX_PRODUCT_IMAGES} photos per product`)
+      return
+    }
+
     setIsCompressingImage(true)
     setFormError(null)
     try {
       const compressed = await compressImageDataUrl(dataUrl)
-      setImagePreview(compressed)
+      setPendingImages((prev) => [...prev, compressed])
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Could not process image')
     } finally {
@@ -284,6 +297,11 @@ export function ScanPage() {
   }
 
   async function capturePhoto() {
+    if (!canAddMoreImages) {
+      setFormError(`Maximum ${MAX_PRODUCT_IMAGES} photos per product`)
+      return
+    }
+
     const video = videoRef.current
     if (!video || video.videoWidth === 0) {
       document.getElementById('scan-image-file')?.click()
@@ -297,24 +315,51 @@ export function ScanPage() {
     if (!context) return
 
     context.drawImage(video, 0, 0)
-    await setCompressedPreview(canvas.toDataURL('image/jpeg', 0.92))
+    await addPendingImage(canvas.toDataURL('image/jpeg', 0.92))
   }
 
   async function handleImageFile(event) {
-    const file = event.target.files?.[0]
-    if (!file) return
+    const files = Array.from(event.target.files ?? [])
+    if (files.length === 0) return
 
     setIsCompressingImage(true)
     setFormError(null)
+
     try {
-      const compressed = await compressImageFile(file)
-      setImagePreview(compressed)
+      const nextImages = [...pendingImages]
+      let remainingSlots = MAX_PRODUCT_IMAGES - savedImages.length - nextImages.length
+
+      for (const file of files) {
+        if (remainingSlots <= 0) {
+          setFormError(`Maximum ${MAX_PRODUCT_IMAGES} photos per product`)
+          break
+        }
+
+        const compressed = await compressImageFile(file)
+        nextImages.push(compressed)
+        remainingSlots -= 1
+      }
+
+      setPendingImages(nextImages)
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Could not process image')
     } finally {
       setIsCompressingImage(false)
       event.target.value = ''
     }
+  }
+
+  async function buildImagesPayload() {
+    if (pendingImages.length === 0) {
+      return undefined
+    }
+
+    const compressedImages = []
+    for (const image of pendingImages) {
+      compressedImages.push(await compressImageDataUrl(image))
+    }
+
+    return compressedImages
   }
 
   async function handleUpdateProduct() {
@@ -326,15 +371,13 @@ export function ScanPage() {
     const barcode = form.barcode.trim()
     const name = form.name.trim() || `Product ${barcode}`
 
-    let imageBase64 = imagePreview || undefined
-    if (imageBase64) {
-      try {
-        imageBase64 = await compressImageDataUrl(imageBase64)
-      } catch (err) {
-        setFormError(err instanceof Error ? err.message : 'Could not compress image')
-        setIsSaving(false)
-        return
-      }
+    let imagesBase64
+    try {
+      imagesBase64 = await buildImagesPayload()
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Could not compress image')
+      setIsSaving(false)
+      return
     }
 
     const payload = {
@@ -344,7 +387,8 @@ export function ScanPage() {
       description: form.description.trim() || undefined,
       category: form.category.trim() || undefined,
       minimumStockLevel: Number(form.minimumStockLevel) || 0,
-      imageBase64,
+      ...(imagesBase64?.length ? { imagesBase64 } : {}),
+      ...(removedImageIds.length ? { removeImageIds: removedImageIds } : {}),
     }
 
     try {
@@ -354,7 +398,8 @@ export function ScanPage() {
       })
       setProduct(response.data)
       setForm(productToForm(response.data))
-      setImagePreview(null)
+      setPendingImages([])
+      setRemovedImageIds([])
       setScanState('found')
       playScanBeep('created')
     } catch (err) {
@@ -383,7 +428,6 @@ export function ScanPage() {
 
   const showScanner = scanState === 'idle' || scanState === 'scanning' || scanState === 'error'
   const showProductForm = scanState === 'found' || scanState === 'not-found'
-  const displayImage = imagePreview || product?.imageUrl
 
   async function handleCreateProduct() {
     setFormError(null)
@@ -392,15 +436,13 @@ export function ScanPage() {
     const barcode = form.barcode.trim()
     const name = form.name.trim() || `Product ${barcode}`
 
-    let imageBase64 = imagePreview || undefined
-    if (imageBase64) {
-      try {
-        imageBase64 = await compressImageDataUrl(imageBase64)
-      } catch (err) {
-        setFormError(err instanceof Error ? err.message : 'Could not compress image')
-        setIsSaving(false)
-        return
-      }
+    let imagesBase64
+    try {
+      imagesBase64 = await buildImagesPayload()
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Could not compress image')
+      setIsSaving(false)
+      return
     }
 
     const payload = {
@@ -410,7 +452,7 @@ export function ScanPage() {
       description: form.description.trim() || undefined,
       category: form.category.trim() || undefined,
       minimumStockLevel: Number(form.minimumStockLevel) || 0,
-      imageBase64,
+      ...(imagesBase64?.length ? { imagesBase64 } : {}),
     }
 
     try {
@@ -420,7 +462,8 @@ export function ScanPage() {
       })
       setProduct(response.data)
       setForm(productToForm(response.data))
-      setImagePreview(null)
+      setPendingImages([])
+      setRemovedImageIds([])
       setScanState('found')
       playScanBeep('created')
     } catch (err) {
@@ -436,7 +479,7 @@ export function ScanPage() {
         <h2 className="mb-1 text-xl font-semibold text-gray-900 sm:text-2xl">Scan</h2>
         <p className="text-sm text-[var(--color-muted)]">
           Scan a barcode with your camera. If the product exists, details will appear. Otherwise you
-          can add it with a photo.
+          can add it with up to {MAX_PRODUCT_IMAGES} photos.
         </p>
       </div>
 
@@ -609,16 +652,57 @@ export function ScanPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label>Product image</Label>
-                  {displayImage ? (
-                    <img
-                      src={displayImage}
-                      alt={form.name || 'Product'}
-                      className="max-h-48 w-full rounded-lg border border-[var(--color-border)] object-contain bg-gray-50"
-                    />
-                  ) : (
+                  <div className="flex items-center justify-between gap-2">
+                    <Label>Product photos</Label>
+                    <span className="text-xs text-[var(--color-muted)]">
+                      {totalImages}/{MAX_PRODUCT_IMAGES}
+                    </span>
+                  </div>
+                  {totalImages === 0 ? (
                     <div className="flex h-36 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-gray-50 text-sm text-[var(--color-muted)]">
-                      No product image
+                      No photos yet
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {savedImages.map((image) => (
+                        <div key={image.id} className="relative overflow-hidden rounded-lg border border-[var(--color-border)] bg-gray-50">
+                          <img
+                            src={image.url}
+                            alt={form.name || 'Product'}
+                            className="aspect-square w-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setRemovedImageIds((prev) => [...prev, image.id])}
+                            className="absolute right-1 top-1 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"
+                            aria-label="Remove photo"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                      {pendingImages.map((image, index) => (
+                        <div
+                          key={`pending-${index}`}
+                          className="relative overflow-hidden rounded-lg border border-dashed border-[var(--color-border)] bg-gray-50"
+                        >
+                          <img
+                            src={image}
+                            alt={`New photo ${index + 1}`}
+                            className="aspect-square w-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPendingImages((prev) => prev.filter((_, itemIndex) => itemIndex !== index))
+                            }
+                            className="absolute right-1 top-1 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"
+                            aria-label="Remove photo"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   )}
                   <div className="flex flex-wrap gap-2">
@@ -627,23 +711,36 @@ export function ScanPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => void capturePhoto()}
-                      disabled={isCompressingImage}
+                      disabled={isCompressingImage || !canAddMoreImages}
                     >
                       <Camera className="mr-2 h-4 w-4" />
                       {isCompressingImage ? 'Processing…' : 'Capture'}
                     </Button>
-                    <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-[var(--color-border)] bg-white px-3 py-1.5 text-xs font-medium hover:bg-gray-50">
+                    <label
+                      className={`inline-flex items-center justify-center gap-2 rounded-md border border-[var(--color-border)] bg-white px-3 py-1.5 text-xs font-medium hover:bg-gray-50 ${
+                        isCompressingImage || !canAddMoreImages
+                          ? 'cursor-not-allowed opacity-50'
+                          : 'cursor-pointer'
+                      }`}
+                    >
                       <input
                         id="scan-image-file"
                         type="file"
                         accept="image/jpeg,image/png,image/webp"
                         className="hidden"
+                        multiple
+                        disabled={isCompressingImage || !canAddMoreImages}
                         onChange={handleImageFile}
                       />
                       <ImagePlus className="h-4 w-4" />
                       Upload
                     </label>
                   </div>
+                  {!canAddMoreImages && (
+                    <p className="text-xs text-[var(--color-muted)]">
+                      Maximum {MAX_PRODUCT_IMAGES} photos reached. Remove a photo to add another.
+                    </p>
+                  )}
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">

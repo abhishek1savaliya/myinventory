@@ -1,5 +1,11 @@
 import type { ProductStatus, WarehouseStatus, LocationStatus } from './index.js'
 
+export interface ProductImageDto {
+  id: string
+  url: string
+  sortOrder: number
+}
+
 export interface ProductDto {
   id: string
   sku: string
@@ -8,6 +14,7 @@ export interface ProductDto {
   description: string | null
   category: string | null
   imageUrl: string | null
+  images: ProductImageDto[]
   status: ProductStatus
   minimumStockLevel: number
   createdAt: string

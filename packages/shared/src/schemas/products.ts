@@ -1,6 +1,10 @@
 import { z } from 'zod'
 import { ProductStatus } from '../types/index.js'
 
+export const MAX_PRODUCT_IMAGES = 10
+
+const imageBase64Schema = z.string().max(3_000_000, 'Image is too large')
+
 export const createProductSchema = z.object({
   sku: z.string().trim().min(1, 'SKU is required').max(64),
   barcode: z.string().trim().min(1, 'Barcode is required').max(128),
@@ -13,10 +17,8 @@ export const createProductSchema = z.object({
 
 export const createProductFromScanSchema = createProductSchema
   .extend({
-    imageBase64: z
-      .string()
-      .max(3_000_000, 'Image is too large')
-      .optional(),
+    imageBase64: imageBase64Schema.optional(),
+    imagesBase64: z.array(imageBase64Schema).max(MAX_PRODUCT_IMAGES).optional(),
   })
   .omit({ imageUrl: true })
 
@@ -40,18 +42,29 @@ export const productListQuerySchema = z.object({
 
 export type CreateProductInput = z.infer<typeof createProductSchema>
 export type CreateProductFromScanInput = z.infer<typeof createProductFromScanSchema>
+
 export const updateProductFromScanSchema = createProductSchema
   .partial()
   .extend({
-    imageBase64: z
-      .string()
-      .max(3_000_000, 'Image is too large')
-      .optional(),
+    imageBase64: imageBase64Schema.optional(),
+    imagesBase64: z.array(imageBase64Schema).max(MAX_PRODUCT_IMAGES).optional(),
+    removeImageIds: z.array(z.string().trim().min(1)).optional(),
   })
   .omit({ imageUrl: true })
-  .refine((data) => Object.keys(data).length > 0, {
-    message: 'At least one field is required',
-  })
+  .refine(
+    (data) => {
+      const hasFieldUpdate = Object.entries(data).some(
+        ([key, value]) =>
+          !['imageBase64', 'imagesBase64', 'removeImageIds'].includes(key) && value !== undefined,
+      )
+      const hasImageUpdate =
+        Boolean(data.imageBase64) ||
+        (data.imagesBase64?.length ?? 0) > 0 ||
+        (data.removeImageIds?.length ?? 0) > 0
+      return hasFieldUpdate || hasImageUpdate
+    },
+    { message: 'At least one field is required' },
+  )
 
 export type UpdateProductFromScanInput = z.infer<typeof updateProductFromScanSchema>
 export type UpdateProductInput = z.infer<typeof updateProductSchema>
