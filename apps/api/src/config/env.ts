@@ -5,10 +5,13 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-// Allow platforms (like Render) to provide an implicit PORT variable.
-// If the runtime provides `PORT`, expose it as `API_PORT` so the zod schema picks it up.
-if (process.env.PORT && !process.env.API_PORT) {
-  process.env.API_PORT = process.env.PORT
+// When a hosting platform (Render, Heroku, etc.) provides `PORT`, map it to
+// `API_PORT` for our config and bind to `0.0.0.0` so the platform can detect
+// the open port. This avoids the default `127.0.0.1` binding which is not
+// reachable from the platform's load balancer.
+if (process.env.PORT) {
+  if (!process.env.API_PORT) process.env.API_PORT = process.env.PORT
+  if (!process.env.API_HOST) process.env.API_HOST = '0.0.0.0'
 }
 
 config({ path: resolve(__dirname, '../../../../.env') })
