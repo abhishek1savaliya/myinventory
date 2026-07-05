@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: myinventory-api
+    env: node
+    plan: free
+    # Root directory: use repo root so workspaces/pacakges are available
+    # If you prefer, set `root` to "apps/api" and publish/pack shared packages.
+    root: ./
+    branches: [main]
+    buildCommand: >-
+      npm ci && \
+      npm run build -w @myinventory/shared && \
+      npm run db:generate && \
+      npm run db:build && \
+      npm run build -w @myinventory/api
+    startCommand: npm run start -w @myinventory/api
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Add your production secrets in the Render dashboard instead of this file.
+      # - key: DATABASE_URL
+      #   value: <your_database_url>
+      # - key: JWT_SECRET
+      #   value: <your_jwt_secret>
+      # - key: SUPABASE_URL
+      #   value: <your_supabase_url>
+      # - key: SUPABASE_SECRET_KEY
+      #   value: <your_supabase_secret>
+      # - key: UPSTASH_REDIS_REST_URL
+      #   value: <your_upstash_url>
+      # - key: UPSTASH_REDIS_REST_TOKEN
+      #   value: <your_upstash_token>

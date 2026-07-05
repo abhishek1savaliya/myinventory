@@ -1,0 +1,247 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  WAREHOUSE_USER
+  PICKER
+}
+
+enum AppFeature {
+  DASHBOARD
+  SCAN
+  PRODUCTS
+  INVENTORY
+  RECEIVING
+  PICKING
+  MOVEMENT
+  WAREHOUSES
+  LOCATIONS
+  TRANSACTIONS
+  USERS
+  SETTINGS
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum DisableRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELLED
+}
+
+enum ProductStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum WarehouseStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum LocationStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum TransactionType {
+  STOCK_RECEIVED
+  STOCK_MOVED
+  STOCK_PICKED
+  STOCK_ADJUSTED
+  STOCK_RETURNED
+}
+
+enum AdjustmentReason {
+  DAMAGE
+  LOST
+  FOUND
+  COUNT_CORRECTION
+  OTHER
+}
+
+model User {
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  passwordHash String     @map("password_hash")
+  role          UserRole   @default(WAREHOUSE_USER)
+  status        UserStatus @default(ACTIVE)
+  extraFeatures AppFeature[] @default([]) @map("extra_features")
+  createdAt     DateTime   @default(now()) @map("created_at")
+
+  transactions           InventoryTransaction[]
+  devices                Device[]
+  disableRequestsTarget  UserDisableRequest[] @relation("DisableTarget")
+  disableRequestsMade    UserDisableRequest[] @relation("DisableRequester")
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+model Product {
+  id                String        @id @default(cuid())
+  sku               String        @unique
+  barcode           String        @unique
+  name              String
+  description       String?
+  category          String?
+  imageUrl          String?       @map("image_url")
+  status            ProductStatus @default(ACTIVE)
+  minimumStockLevel Int           @default(0) @map("minimum_stock_level")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  inventory    Inventory[]
+  transactions InventoryTransaction[]
+
+  @@index([sku])
+  @@index([barcode])
+  @@index([status])
+  @@map("products")
+}
+
+model Warehouse {
+  id        String          @id @default(cuid())
+  code      String          @unique
+  name      String
+  address   String?
+  status    WarehouseStatus @default(ACTIVE)
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+
+  locations               Location[]
+  inventory               Inventory[]
+  sourceTransactions      InventoryTransaction[] @relation("SourceWarehouse")
+  destinationTransactions InventoryTransaction[] @relation("DestinationWarehouse")
+
+  @@index([code])
+  @@index([status])
+  @@map("warehouses")
+}
+
+model Location {
+  id          String         @id @default(cuid())
+  warehouseId String         @map("warehouse_id")
+  code        String
+  zone        String?
+  aisle       String?
+  rack        String?
+  shelf       String?
+  bin         String?
+  status      LocationStatus @default(ACTIVE)
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  warehouse               Warehouse              @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  inventory               Inventory[]
+  sourceTransactions      InventoryTransaction[] @relation("SourceLocation")
+  destinationTransactions InventoryTransaction[] @relation("DestinationLocation")
+
+  @@unique([warehouseId, code])
+  @@index([warehouseId])
+  @@index([code])
+  @@map("locations")
+}
+
+model Inventory {
+  id               String   @id @default(cuid())
+  productId        String   @map("product_id")
+  warehouseId      String   @map("warehouse_id")
+  locationId       String   @map("location_id")
+  quantity         Int      @default(0)
+  reservedQuantity Int      @default(0) @map("reserved_quantity")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  location  Location  @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
+  @@unique([productId, warehouseId, locationId])
+  @@index([productId])
+  @@index([warehouseId])
+  @@index([locationId])
+  @@map("inventory")
+}
+
+model Device {
+  id         String    @id @default(cuid())
+  deviceId   String    @unique @map("device_id")
+  name       String?
+  platform   String?
+  userId     String?   @map("user_id")
+  lastSeenAt DateTime? @map("last_seen_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user         User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  transactions InventoryTransaction[]
+
+  @@index([deviceId])
+  @@map("devices")
+}
+
+model InventoryTransaction {
+  id                     String            @id @default(cuid())
+  type                   TransactionType
+  productId              String            @map("product_id")
+  sku                    String
+  quantity               Int
+  sourceWarehouseId      String?           @map("source_warehouse_id")
+  sourceLocationId       String?           @map("source_location_id")
+  destinationWarehouseId String?           @map("destination_warehouse_id")
+  destinationLocationId  String?           @map("destination_location_id")
+  userId                 String            @map("user_id")
+  deviceRecordId         String?           @map("device_record_id")
+  reference              String?
+  notes                  String?
+  adjustmentReason       AdjustmentReason? @map("adjustment_reason")
+  createdAt              DateTime          @default(now()) @map("created_at")
+
+  product              Product    @relation(fields: [productId], references: [id], onDelete: Restrict)
+  user                 User       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  device               Device?    @relation(fields: [deviceRecordId], references: [id], onDelete: SetNull)
+  sourceWarehouse      Warehouse? @relation("SourceWarehouse", fields: [sourceWarehouseId], references: [id], onDelete: Restrict)
+  sourceLocation       Location?  @relation("SourceLocation", fields: [sourceLocationId], references: [id], onDelete: Restrict)
+  destinationWarehouse Warehouse? @relation("DestinationWarehouse", fields: [destinationWarehouseId], references: [id], onDelete: Restrict)
+  destinationLocation  Location?  @relation("DestinationLocation", fields: [destinationLocationId], references: [id], onDelete: Restrict)
+
+  @@index([productId])
+  @@index([sku])
+  @@index([type])
+  @@index([createdAt])
+  @@index([sourceWarehouseId])
+  @@index([sourceLocationId])
+  @@index([destinationWarehouseId])
+  @@index([destinationLocationId])
+  @@index([userId])
+  @@map("inventory_transactions")
+}
+
+model UserDisableRequest {
+  id            String               @id @default(cuid())
+  targetUserId  String               @map("target_user_id")
+  requestedById String               @map("requested_by_id")
+  status        DisableRequestStatus @default(PENDING)
+  createdAt     DateTime             @default(now()) @map("created_at")
+  resolvedAt    DateTime?            @map("resolved_at")
+
+  targetUser  User @relation("DisableTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+  requestedBy User @relation("DisableRequester", fields: [requestedById], references: [id], onDelete: Cascade)
+
+  @@index([targetUserId, status])
+  @@index([requestedById])
+  @@map("user_disable_requests")
+}

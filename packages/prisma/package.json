@@ -1,0 +1,43 @@
+{
+  "name": "@myinventory/prisma",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "generate": "dotenv -e ../../.env -- prisma generate --schema ./schema.prisma",
+    "migrate": "dotenv -e ../../.env -- prisma migrate dev --schema ./schema.prisma",
+    "migrate:init": "dotenv -e ../../.env -- prisma migrate dev --schema ./schema.prisma --name init",
+    "migrate:access-logs": "dotenv -e ../../.env -- prisma migrate dev --schema ./schema.prisma --name api_access_logs",
+    "push": "dotenv -e ../../.env -- prisma db push --schema ./schema.prisma",
+    "execute:access-logs": "dotenv -e ../../.env -- prisma db execute --file ./migrations/20260704130200_api_access_logs/migration.sql --schema ./schema.prisma",
+    "execute:disable-requests": "dotenv -e ../../.env -- prisma db execute --file ./migrations/20260704130700_user_disable_requests/migration.sql --schema ./schema.prisma",
+    "migrate:deploy": "dotenv -e ../../.env -- prisma migrate deploy --schema ./schema.prisma",
+    "seed": "dotenv -e ../../.env -- tsx seed.ts",
+    "studio": "dotenv -e ../../.env -- prisma studio --schema ./schema.prisma",
+    "check": "dotenv -e ../../.env -- tsx scripts/check-connection.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.6.0"
+  },
+  "devDependencies": {
+    "bcryptjs": "^3.0.2",
+    "dotenv": "^16.4.7",
+    "dotenv-cli": "^8.0.0",
+    "prisma": "^6.6.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3"
+  },
+  "prisma": {
+    "seed": "tsx seed.ts"
+  }
+}

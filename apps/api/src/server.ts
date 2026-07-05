@@ -1,0 +1,77 @@
+import express from 'express'
+import cors from 'cors'
+import { checkDatabaseConnection, disconnectDatabase } from '@myinventory/prisma'
+import { env } from './config/env.js'
+import { apiRouter } from './routes/index.js'
+import { errorHandler, notFoundHandler } from './middleware/error-handler.js'
+import { apiAccessLogger } from './middleware/access-logger.js'
+import {
+  ensureAccessLogBucket,
+  flushAllAccessLogs,
+} from './modules/access-logs/access-logs.service.js'
+import { checkRedisConnection } from './lib/redis.js'
+
+const app = express()
+
+app.use(cors({ origin: true, credentials: true }))
+app.use(express.json({ limit: '5mb' }))
+app.use(apiAccessLogger)
+
+app.use('/api', apiRouter)
+
+app.use(notFoundHandler)
+app.use(errorHandler)
+
+async function startServer(): Promise<void> {
+  try {
+    await checkDatabaseConnection()
+    console.log('[MyInventory API] Database connection verified')
+    await ensureAccessLogBucket()
+    console.log('[MyInventory API] Supabase access-log storage ready')
+    await checkRedisConnection()
+    console.log('[MyInventory API] Redis cache connected')
+  } catch (error) {
+    console.error('[MyInventory API] Database connection failed')
+    if (error instanceof Error) {
+      console.error(error.message)
+    }
+    process.exit(1)
+  }
+
+  const server = app.listen(env.apiPort, env.apiHost, () => {
+    console.log(`[MyInventory API] listening on http://${env.apiHost}:${env.apiPort}`)
+  })
+
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(
+        `[MyInventory API] Port ${env.apiPort} is already in use. Stop the other process or change API_PORT in .env.`,
+      )
+      process.exit(1)
+    }
+
+    throw err
+  })
+
+  const shutdown = async (signal: string) => {
+    console.log(`[MyInventory API] ${signal} received, shutting down`)
+    server.close()
+    try {
+      await flushAllAccessLogs()
+    } catch (error) {
+      console.error('[MyInventory API] Failed to flush access logs on shutdown')
+      if (error instanceof Error) {
+        console.error(error.message)
+      }
+    }
+    await disconnectDatabase()
+    process.exit(0)
+  }
+
+  process.on('SIGINT', () => void shutdown('SIGINT'))
+  process.on('SIGTERM', () => void shutdown('SIGTERM'))
+}
+
+void startServer()
+
+export { app }

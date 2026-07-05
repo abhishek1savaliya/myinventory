@@ -1,0 +1,36 @@
+{
+  "name": "myinventory",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MyInventory - Windows desktop warehouse management application",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,windows -c blue,green \"npm run dev -w @myinventory/api\" \"npm run dev -w @myinventory/windows\"",
+    "dev:api": "npm run dev -w @myinventory/api",
+    "dev:windows": "npm run dev -w @myinventory/windows",
+    "dev:web": "npm run dev -w @myinventory/web",
+    "dev:all": "concurrently -n api,web,windows -c blue,cyan,green \"npm run dev -w @myinventory/api\" \"npm run dev -w @myinventory/web\" \"npm run dev -w @myinventory/windows\"",
+    "build": "npm run build -w @myinventory/shared && npm run db:generate && npm run db:build && npm run build -w @myinventory/api && npm run build -w @myinventory/windows && npm run build -w @myinventory/web",
+    "typecheck": "npm run typecheck -w @myinventory/shared && npm run typecheck -w @myinventory/prisma && npm run typecheck -w @myinventory/api && npm run typecheck -w @myinventory/windows",
+    "db:generate": "npm run generate -w @myinventory/prisma",
+    "db:build": "npm run build -w @myinventory/prisma",
+    "db:check": "npm run check -w @myinventory/prisma",
+    "db:migrate": "npm run migrate -w @myinventory/prisma",
+    "db:migrate:init": "npm run migrate:init -w @myinventory/prisma",
+    "db:migrate:access-logs": "npm run migrate:access-logs -w @myinventory/prisma",
+    "db:seed": "npm run seed -w @myinventory/prisma",
+    "db:studio": "npm run studio -w @myinventory/prisma",
+    "postinstall": "npm run db:generate && npm run db:build",
+    "lint": "npm run lint -w @myinventory/api && npm run lint -w @myinventory/windows"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
