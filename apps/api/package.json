@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "prebuild": "npm run generate -w @myinventory/prisma",
     "build": "tsc",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
