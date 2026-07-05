@@ -10,7 +10,7 @@ export function FeatureGate({ feature, children }) {
 
   useEffect(() => {
     if (!isLoading && !hasFeature(feature)) {
-      router.replace('/')
+      router.replace('/dashboard')
     }
   }, [isLoading, hasFeature, feature, router])
 

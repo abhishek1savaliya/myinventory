@@ -2,8 +2,9 @@ import { Providers } from '@/components/Providers'
 import './globals.css'
 
 export const metadata = {
-  title: 'MyInventory',
-  description: 'Warehouse inventory management system',
+  title: 'MyInventory — Warehouse Inventory Management',
+  description:
+    'Scan barcodes, track stock, manage warehouses, and run receiving, picking, and stock movement from web and mobile.',
 }
 
 export const viewport = {

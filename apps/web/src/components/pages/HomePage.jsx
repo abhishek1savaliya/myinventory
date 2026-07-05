@@ -17,7 +17,7 @@ export function HomePage() {
     if (hasFeature(AppFeature.DASHBOARD)) return
 
     const first = navItems.find((item) => hasFeature(item.feature))
-    if (first && first.href !== '/') {
+    if (first && first.href !== '/dashboard') {
       router.replace(first.href)
     }
   }, [hasFeature, isLoading, router])

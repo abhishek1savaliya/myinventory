@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { useAuth } from '@/contexts/use-auth'
 import { ApiRequestError } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
@@ -19,7 +20,7 @@ export function LoginPage() {
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      router.replace('/')
+      router.replace('/dashboard')
     }
   }, [isLoading, isAuthenticated, router])
 
@@ -34,7 +35,7 @@ export function LoginPage() {
 
     try {
       await login({ email, password })
-      router.replace('/')
+      router.replace('/dashboard')
     } catch (err) {
       if (err instanceof ApiRequestError) {
         setError(err.message)
@@ -54,6 +55,11 @@ export function LoginPage() {
           <CardDescription>Warehouse inventory management system</CardDescription>
         </CardHeader>
         <CardContent>
+          <p className="mb-4 text-center text-sm">
+            <Link href="/" className="text-[var(--color-primary)] hover:underline">
+              ← Back to home
+            </Link>
+          </p>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>

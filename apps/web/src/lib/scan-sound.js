@@ -1,5 +1,17 @@
 let audioContext = null
 
+export const SCAN_SOUND_KEY = 'myinventory_scan_sound'
+
+export function getStoredScanSoundEnabled() {
+  if (typeof window === 'undefined') return true
+  return localStorage.getItem(SCAN_SOUND_KEY) !== '0'
+}
+
+export function setStoredScanSoundEnabled(enabled) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(SCAN_SOUND_KEY, enabled ? '1' : '0')
+}
+
 function getAudioContext() {
   if (typeof window === 'undefined') return null
 
@@ -40,6 +52,8 @@ export function initScanAudio() {
 /** @param {'scanned' | 'found' | 'not-found' | 'created'} kind */
 export function playScanBeep(kind = 'scanned') {
   try {
+    if (!getStoredScanSoundEnabled()) return
+
     const ctx = getAudioContext()
     if (!ctx) return
 

@@ -10,7 +10,7 @@ export function RoleGate({ roles, children }) {
 
   useEffect(() => {
     if (!isLoading && !hasRole(...roles)) {
-      router.replace('/')
+      router.replace('/dashboard')
     }
   }, [isLoading, hasRole, roles, router])
 

@@ -46,7 +46,8 @@ function SidebarContent({ pathname, visibleNavItems, user, logout, onNavigate, s
       )}
       <nav className="flex-1 overflow-y-auto p-2">
         {visibleNavItems.map(({ href, label, icon }) => {
-          const isActive = href === '/' ? pathname === '/' : pathname.startsWith(href)
+          const isActive =
+            href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href)
           return (
             <NavLink
               key={href}
@@ -157,7 +158,8 @@ export function AppShell({ children }) {
             aria-label="Mobile navigation"
           >
             {mobileNavItems.map(({ href, label, icon }) => {
-              const isActive = href === '/' ? pathname === '/' : pathname.startsWith(href)
+              const isActive =
+            href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href)
               return (
                 <NavLink
                   key={href}

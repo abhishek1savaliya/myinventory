@@ -15,7 +15,7 @@ import {
 import { AppFeature } from '@myinventory/shared'
 
 export const navItems = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard, feature: AppFeature.DASHBOARD },
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, feature: AppFeature.DASHBOARD },
   { href: '/scan', label: 'Scan', icon: ScanLine, feature: AppFeature.SCAN },
   { href: '/products', label: 'Products', icon: Package, feature: AppFeature.PRODUCTS },
   { href: '/inventory', label: 'Inventory', icon: Boxes, feature: AppFeature.INVENTORY },
