@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Camera, ImagePlus, RotateCcw, ScanLine, Trash2, X } from 'lucide-react'
+import { Camera, Flashlight, ImagePlus, RotateCcw, ScanLine, Trash2, X } from 'lucide-react'
 import { AppFeature, MAX_PRODUCT_IMAGES, UserRole } from '@myinventory/shared'
 import { apiFetch, ApiRequestError, API_BASE_URL } from '@/lib/api-client'
 import { useAuth } from '@/contexts/use-auth'
@@ -18,6 +18,12 @@ import {
   getCachedBarcodeLookup,
   setCachedBarcodeLookup,
 } from '@/lib/scan-barcode-cache'
+import {
+  applyTorch,
+  getStoredTorchPreference,
+  setStoredTorchPreference,
+  syncTorchWithPreference,
+} from '@/lib/scan-torch'
 
 const emptyForm = {
   sku: '',
@@ -97,6 +103,10 @@ export function ScanPage() {
   const [formError, setFormError] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
   const [isCompressingImage, setIsCompressingImage] = useState(false)
+  const [torchOn, setTorchOn] = useState(() =>
+    typeof window !== 'undefined' ? getStoredTorchPreference() : false,
+  )
+  const [torchSupported, setTorchSupported] = useState(false)
 
   const stopScanner = useCallback(() => {
     controlsRef.current?.stop()
@@ -109,7 +119,34 @@ export function ScanPage() {
     }
 
     setIsScannerActive(false)
+    setTorchSupported(false)
+    setTorchOn(false)
   }, [])
+
+  const refreshTorchState = useCallback(async () => {
+    const video = videoRef.current
+    if (!video || !isMobileDevice) {
+      setTorchSupported(false)
+      return
+    }
+
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+    const { supported, active } = await syncTorchWithPreference(video)
+    setTorchSupported(supported)
+    setTorchOn(active)
+  }, [isMobileDevice])
+
+  async function handleTorchToggle() {
+    const video = videoRef.current
+    if (!video || !torchSupported) return
+
+    const next = !torchOn
+    const applied = await applyTorch(video, next)
+    if (!applied) return
+
+    setTorchOn(next)
+    setStoredTorchPreference(next)
+  }
 
   const loadZxing = useCallback(async () => {
     if (zxingRef.current) {
@@ -268,6 +305,10 @@ export function ScanPage() {
         setIsScannerActive(true)
         setCameraStarted(true)
 
+        if (mobile) {
+          await refreshTorchState()
+        }
+
         const devices = await refreshCameras()
         if (deviceId) {
           setSelectedCameraId(deviceId)
@@ -303,7 +344,7 @@ export function ScanPage() {
         scanningRef.current = false
       }
     },
-    [lookupBarcode, refreshCameras, stopScanner, loadZxing],
+    [lookupBarcode, refreshCameras, refreshTorchState, stopScanner, loadZxing],
   )
 
   useEffect(() => {
@@ -640,6 +681,19 @@ export function ScanPage() {
                     <div className="h-40 w-64 rounded-lg border-2 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
                   </div>
                 )}
+                {isMobileDevice && cameraStarted && torchSupported && isScannerActive && (
+                  <button
+                    type="button"
+                    onClick={() => void handleTorchToggle()}
+                    className={`absolute bottom-3 right-3 rounded-full p-3 shadow-lg transition-colors ${
+                      torchOn ? 'bg-amber-400 text-amber-950' : 'bg-black/60 text-white'
+                    }`}
+                    aria-label={torchOn ? 'Turn flashlight off' : 'Turn flashlight on'}
+                    aria-pressed={torchOn}
+                  >
+                    <Flashlight className="h-5 w-5" />
+                  </button>
+                )}
               </div>
 
               {cameraError && (
@@ -651,6 +705,16 @@ export function ScanPage() {
                   <Button type="button" onClick={handleStartCamera}>
                     <Camera className="mr-2 h-4 w-4" />
                     Start camera
+                  </Button>
+                )}
+                {isMobileDevice && cameraStarted && torchSupported && isScannerActive && (
+                  <Button
+                    type="button"
+                    variant={torchOn ? 'default' : 'outline'}
+                    onClick={() => void handleTorchToggle()}
+                  >
+                    <Flashlight className="mr-2 h-4 w-4" />
+                    {torchOn ? 'Flashlight on' : 'Flashlight off'}
                   </Button>
                 )}
               </div>
