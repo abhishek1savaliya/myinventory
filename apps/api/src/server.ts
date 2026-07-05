@@ -9,6 +9,7 @@ import {
   ensureAccessLogBucket,
   flushAllAccessLogs,
 } from './modules/access-logs/access-logs.service.js'
+import { ensureSessionBucket } from './lib/session-storage.js'
 import { checkRedisConnection } from './lib/redis.js'
 
 const app = express()
@@ -28,6 +29,8 @@ async function startServer(): Promise<void> {
     console.log('[MyInventory API] Database connection verified')
     await ensureAccessLogBucket()
     console.log('[MyInventory API] Supabase access-log storage ready')
+    await ensureSessionBucket()
+    console.log('[MyInventory API] Supabase session storage ready')
     await checkRedisConnection()
     console.log('[MyInventory API] Redis cache connected')
   } catch (error) {

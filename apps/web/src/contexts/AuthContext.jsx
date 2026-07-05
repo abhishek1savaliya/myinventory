@@ -1,8 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { apiFetch, setTokenGetter, setUnauthorizedHandler } from '@/lib/api-client'
-import { clearStoredToken, getStoredToken, setStoredToken } from '@/lib/auth-storage'
+import { apiFetch, setSessionGetter, setUnauthorizedHandler } from '@/lib/api-client'
+import { clearStoredSession, getStoredSessionId, setStoredSessionId } from '@/lib/auth-storage'
 import { AuthContext } from './auth-context'
 import { AppFeature } from '@myinventory/shared'
 
@@ -10,15 +10,23 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  const logout = useCallback(() => {
-    clearStoredToken()
+  const logout = useCallback(async () => {
+    const sessionId = getStoredSessionId()
+    if (sessionId) {
+      try {
+        await apiFetch('/api/auth/logout', { method: 'POST' })
+      } catch {
+        // Clear local session even if API logout fails
+      }
+    }
+    clearStoredSession()
     setUser(null)
   }, [])
 
   const loadSession = useCallback(async () => {
-    const token = getStoredToken()
+    const sessionId = getStoredSessionId()
 
-    if (!token) {
+    if (!sessionId) {
       setUser(null)
       setIsLoading(false)
       return
@@ -28,7 +36,7 @@ export function AuthProvider({ children }) {
       const response = await apiFetch('/api/auth/me')
       setUser(response.user)
     } catch {
-      clearStoredToken()
+      clearStoredSession()
       setUser(null)
     } finally {
       setIsLoading(false)
@@ -36,7 +44,7 @@ export function AuthProvider({ children }) {
   }, [])
 
   useEffect(() => {
-    setTokenGetter(getStoredToken)
+    setSessionGetter(getStoredSessionId)
     setUnauthorizedHandler(() => {
       setUser(null)
     })
@@ -49,7 +57,7 @@ export function AuthProvider({ children }) {
       body: JSON.stringify(input),
     })
 
-    setStoredToken(response.token)
+    setStoredSessionId(response.sessionId)
     setUser(response.user)
   }, [])
 

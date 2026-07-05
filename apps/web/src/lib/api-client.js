@@ -1,4 +1,4 @@
-import { clearStoredToken, getStoredToken } from './auth-storage'
+import { clearStoredSession, getStoredSessionId } from './auth-storage'
 
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ??
@@ -13,11 +13,16 @@ export class ApiRequestError extends Error {
   }
 }
 
-let tokenGetter = getStoredToken
+let sessionGetter = getStoredSessionId
 let onUnauthorized = null
 
+export function setSessionGetter(getter) {
+  sessionGetter = getter
+}
+
+/** @deprecated Use setSessionGetter */
 export function setTokenGetter(getter) {
-  tokenGetter = getter
+  sessionGetter = getter
 }
 
 export function setUnauthorizedHandler(handler) {
@@ -33,14 +38,14 @@ export async function apiFetch(path, init) {
     )
   }
 
-  const token = tokenGetter()
+  const sessionId = sessionGetter()
   const headers = {
     'Content-Type': 'application/json',
     ...(init?.headers ?? {}),
   }
 
-  if (token) {
-    headers.Authorization = `Bearer ${token}`
+  if (sessionId) {
+    headers['X-Session-Id'] = sessionId
   }
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -53,8 +58,8 @@ export async function apiFetch(path, init) {
       message: response.statusText,
     }))
 
-    if (response.status === 401 && token) {
-      clearStoredToken()
+    if (response.status === 401 && sessionId) {
+      clearStoredSession()
       onUnauthorized?.()
     }
 
@@ -63,6 +68,10 @@ export async function apiFetch(path, init) {
       response.status,
       error.details,
     )
+  }
+
+  if (response.status === 204) {
+    return null
   }
 
   return response.json()
