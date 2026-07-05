@@ -12,6 +12,7 @@
     "dev:api": "npm run dev -w @myinventory/api",
     "dev:windows": "npm run dev -w @myinventory/windows",
     "dev:web": "npm run dev -w @myinventory/web",
+    "build:web": "npm run build -w @myinventory/shared && npm run build -w @myinventory/web",
     "dev:all": "concurrently -n api,web,windows -c blue,cyan,green \"npm run dev -w @myinventory/api\" \"npm run dev -w @myinventory/web\" \"npm run dev -w @myinventory/windows\"",
     "build": "npm run build -w @myinventory/shared && npm run db:generate && npm run db:build && npm run build -w @myinventory/api && npm run build -w @myinventory/windows && npm run build -w @myinventory/web",
     "typecheck": "npm run typecheck -w @myinventory/shared && npm run typecheck -w @myinventory/prisma && npm run typecheck -w @myinventory/api && npm run typecheck -w @myinventory/windows",
