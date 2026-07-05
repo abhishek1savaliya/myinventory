@@ -42,6 +42,16 @@ async function startServer(): Promise<void> {
   const runtimePort = process.env.PORT ? Number(process.env.PORT) : env.apiPort
   const runtimeHost = process.env.API_HOST ?? process.env.HOST ?? env.apiHost
 
+  // Diagnostic logs to help Render troubleshooting — will show what env vars
+  // the process actually sees at runtime. Remove or reduce verbosity later.
+  console.log('[MyInventory API] runtime env:', {
+    PORT: process.env.PORT,
+    API_HOST: process.env.API_HOST,
+    HOST: process.env.HOST,
+    env_apiHost: env.apiHost,
+    env_apiPort: env.apiPort,
+  })
+
   const server = app.listen(runtimePort, runtimeHost, () => {
     console.log(`[MyInventory API] listening on http://${runtimeHost}:${runtimePort}`)
   })
