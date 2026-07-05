@@ -20,7 +20,9 @@ services:
         value: production
       # Add your production secrets in the Render dashboard instead of this file.
       # - key: DATABASE_URL
-      #   value: <your_database_url>
+      #   value: <neon_pooled_url_with_-pooler_in_hostname>
+      # - key: DIRECT_DATABASE_URL
+      #   value: <same_as_DATABASE_URL_but_without_-pooler_in_hostname>
       # - key: JWT_SECRET
       #   value: <your_jwt_secret>
       # - key: SUPABASE_URL
