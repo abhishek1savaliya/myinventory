@@ -87,12 +87,14 @@ export function mapChatUserToSummary(user: {
   name: string
   email: string
   role: string
+  chatLastSeenAt?: Date | null
 }): ChatUserSummary {
   return {
     id: user.id,
     name: user.name,
     email: user.email,
     role: user.role,
+    lastSeenAt: user.chatLastSeenAt?.toISOString() ?? null,
   }
 }
 

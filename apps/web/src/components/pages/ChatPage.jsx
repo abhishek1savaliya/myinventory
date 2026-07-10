@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { MessageCircle, Paperclip, Send, Users } from 'lucide-react'
-import { getChatMessagePreview } from '@myinventory/shared'
+import { getChatMessagePreview, formatChatLastSeen } from '@myinventory/shared'
 import { ChatMessageActionsMenu } from '@/components/chat/ChatMessageActionsMenu'
 import { ForwardMessageDialog } from '@/components/chat/ForwardMessageDialog'
 import { ChatReplyBar } from '@/components/chat/ChatReplyBar'
@@ -46,19 +46,47 @@ function formatMessageTime(value) {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-function PresenceStatus({ isLive }) {
+function PresenceStatus({ isLive, lastSeenAt }) {
+  const [now, setNow] = useState(() => new Date())
+
+  useEffect(() => {
+    if (isLive || !lastSeenAt) return undefined
+
+    const timer = setInterval(() => setNow(new Date()), 60_000)
+    return () => clearInterval(timer)
+  }, [isLive, lastSeenAt])
+
+  if (isLive) {
+    return (
+      <span
+        className={cn(
+          'inline-flex items-center gap-1.5 text-[11px] font-medium',
+          'text-emerald-600',
+        )}
+      >
+        <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
+        Live
+      </span>
+    )
+  }
+
+  if (lastSeenAt) {
+    return (
+      <span className="text-[11px] font-medium text-[var(--color-muted)]">
+        Last seen {formatChatLastSeen(lastSeenAt, now)}
+      </span>
+    )
+  }
+
   return (
     <span
       className={cn(
         'inline-flex items-center gap-1.5 text-[11px] font-medium',
-        isLive ? 'text-emerald-600' : 'text-red-500',
+        'text-red-500',
       )}
     >
-      <span
-        className={cn('h-2 w-2 shrink-0 rounded-full', isLive ? 'bg-emerald-500' : 'bg-red-500')}
-        aria-hidden
-      />
-      {isLive ? 'Live' : 'Offline'}
+      <span className="h-2 w-2 shrink-0 rounded-full bg-red-500" aria-hidden />
+      Offline
     </span>
   )
 }
@@ -80,7 +108,7 @@ function UserAvatar({ name, isLive }) {
   )
 }
 
-function UserListItem({ user, isActive, isLive, unreadCount, subtitle, onSelect }) {
+function UserListItem({ user, isActive, isLive, lastSeenAt, unreadCount, subtitle, onSelect }) {
   return (
     <button
       type="button"
@@ -104,7 +132,7 @@ function UserListItem({ user, isActive, isLive, unreadCount, subtitle, onSelect 
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2">
           <p className="truncate text-xs text-[var(--color-muted)]">{subtitle}</p>
-          <PresenceStatus isLive={isLive} />
+          <PresenceStatus isLive={isLive} lastSeenAt={lastSeenAt} />
         </div>
       </div>
     </button>
@@ -144,6 +172,7 @@ export function ChatPage() {
     forwardMessage: forwardMessageToUser,
     dismissNotification,
     isUserLive,
+    getUserLastSeen,
   } = useChat()
 
   const requestedUserId = searchParams.get('user')
@@ -362,6 +391,7 @@ export function ChatPage() {
                   user={chatUser}
                   isActive={chatUser.id === activePartnerId}
                   isLive={isUserLive(chatUser.id)}
+                  lastSeenAt={getUserLastSeen(chatUser.id) ?? chatUser.lastSeenAt ?? null}
                   unreadCount={chatUser.unreadCount}
                   subtitle={chatUser.subtitle}
                   onSelect={selectPartner}
@@ -401,7 +431,12 @@ export function ChatPage() {
                     <CardTitle className="truncate text-base">{activeUser?.name}</CardTitle>
                     <div className="flex items-center gap-2">
                       <CardDescription className="truncate">{activeUser?.email}</CardDescription>
-                      <PresenceStatus isLive={isUserLive(activePartnerId)} />
+                      <PresenceStatus
+                        isLive={isUserLive(activePartnerId)}
+                        lastSeenAt={
+                          getUserLastSeen(activePartnerId) ?? activeUser?.lastSeenAt ?? null
+                        }
+                      />
                     </div>
                   </div>
                 </div>

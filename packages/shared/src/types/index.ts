@@ -71,6 +71,7 @@ export {
   CHAT_MAX_FILE_BYTES,
   getChatDeliveryStatus,
   getChatMessagePreview,
+  formatChatLastSeen,
 } from './chat.js'
 export type {
   OrganizationBranding,

@@ -56,6 +56,7 @@ export function ChatProvider({ children }) {
   const [notifications, setNotifications] = useState([])
   const [totalUnread, setTotalUnread] = useState(0)
   const [liveUserIds, setLiveUserIds] = useState(() => new Set())
+  const [lastSeenByUserId, setLastSeenByUserId] = useState({})
 
   userIdRef.current = user?.id
 
@@ -91,6 +92,14 @@ export function ChatProvider({ children }) {
     [liveUserIds],
   )
 
+  const getUserLastSeen = useCallback(
+    (userId) => {
+      if (!userId) return null
+      return lastSeenByUserId[userId] ?? null
+    },
+    [lastSeenByUserId],
+  )
+
   const refreshConversations = useCallback(async () => {
     if (!canUseChat) return
 
@@ -111,6 +120,15 @@ export function ChatProvider({ children }) {
     try {
       const response = await apiFetch('/api/chat/users')
       setChatUsers(response.data)
+      setLastSeenByUserId((prev) => {
+        const next = { ...prev }
+        for (const chatUser of response.data) {
+          if (chatUser.lastSeenAt) {
+            next[chatUser.id] = chatUser.lastSeenAt
+          }
+        }
+        return next
+      })
     } catch {
       setChatUsers([])
     }
@@ -596,8 +614,11 @@ export function ChatProvider({ children }) {
       applyMessageDeletedForEveryoneRef.current(partnerId, payload.message)
     }
 
-    const onPresenceSync = ({ liveUserIds: nextLiveUserIds }) => {
+    const onPresenceSync = ({ liveUserIds: nextLiveUserIds, lastSeenByUserId: nextLastSeen }) => {
       setLiveUserIds(new Set(Array.isArray(nextLiveUserIds) ? nextLiveUserIds : []))
+      if (nextLastSeen && typeof nextLastSeen === 'object') {
+        setLastSeenByUserId((prev) => ({ ...prev, ...nextLastSeen }))
+      }
     }
 
     socket.on('connect', onConnect)
@@ -678,6 +699,7 @@ export function ChatProvider({ children }) {
       setActivePartnerId,
       setChatPageActive,
       isUserLive,
+      getUserLastSeen,
       refreshUsers,
       refreshConversations,
       loadMessages,
@@ -705,6 +727,7 @@ export function ChatProvider({ children }) {
       setActivePartnerId,
       setChatPageActive,
       isUserLive,
+      getUserLastSeen,
       refreshUsers,
       refreshConversations,
       loadMessages,

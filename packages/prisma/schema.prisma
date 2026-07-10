@@ -108,6 +108,7 @@ model User {
   role           UserRole   @default(WAREHOUSE_USER)
   status         UserStatus @default(ACTIVE)
   extraFeatures  AppFeature[] @default([]) @map("extra_features")
+  chatLastSeenAt DateTime?  @map("chat_last_seen_at")
   createdAt      DateTime   @default(now()) @map("created_at")
 
   organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)

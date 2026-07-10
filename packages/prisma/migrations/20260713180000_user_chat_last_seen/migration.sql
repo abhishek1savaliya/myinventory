@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "chat_last_seen_at" TIMESTAMP(3);

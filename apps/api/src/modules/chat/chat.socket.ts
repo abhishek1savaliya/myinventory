@@ -6,7 +6,7 @@ import type { ChatMessageDto } from '@myinventory/shared'
 import { prisma } from '@myinventory/prisma'
 import { loadSession } from '../../lib/session-storage.js'
 import { verifyAccessToken } from '../../utils/jwt.js'
-import { markConversationRead, markMessageDelivered, sendChatMessage } from './chat.service.js'
+import { markConversationRead, markMessageDelivered, recordChatLastSeen, sendChatMessage, getOrgChatLastSeenMap } from './chat.service.js'
 
 interface ChatSocketUser {
   sub: string
@@ -46,11 +46,24 @@ function getLiveUserIds(orgId: string): string[] {
   return [...(presenceCounts.get(orgId)?.keys() ?? [])]
 }
 
-function broadcastPresence(orgId: string): void {
+function broadcastPresence(
+  orgId: string,
+  lastSeenByUserId?: Record<string, string>,
+): void {
   if (!chatIo) return
-  chatIo.to(`org:${orgId}`).emit('chat:presence:sync', {
+
+  const payload: {
+    liveUserIds: string[]
+    lastSeenByUserId?: Record<string, string>
+  } = {
     liveUserIds: getLiveUserIds(orgId),
-  })
+  }
+
+  if (lastSeenByUserId && Object.keys(lastSeenByUserId).length > 0) {
+    payload.lastSeenByUserId = lastSeenByUserId
+  }
+
+  chatIo.to(`org:${orgId}`).emit('chat:presence:sync', payload)
 }
 
 function setSocketChatPresence(socket: ChatSocket, inChat: boolean): void {
@@ -60,6 +73,14 @@ function setSocketChatPresence(socket: ChatSocket, inChat: boolean): void {
 
   socket.data.inChat = inChat
   changeChatPresence(user.orgId, user.sub, inChat ? 1 : -1)
+
+  if (!inChat) {
+    void recordChatLastSeen(user.sub).then((lastSeenAt) => {
+      broadcastPresence(user.orgId, { [user.sub]: lastSeenAt })
+    })
+    return
+  }
+
   broadcastPresence(user.orgId)
 }
 
@@ -134,7 +155,12 @@ export function initChatSocket(httpServer: HttpServer): Server {
     void socket.join(`user:${user.sub}`)
     void socket.join(`org:${user.orgId}`)
 
-    socket.emit('chat:presence:sync', { liveUserIds: getLiveUserIds(user.orgId) })
+    void getOrgChatLastSeenMap(user.orgId).then((lastSeenByUserId) => {
+      socket.emit('chat:presence:sync', {
+        liveUserIds: getLiveUserIds(user.orgId),
+        lastSeenByUserId,
+      })
+    })
 
     socket.on('chat:presence', (payload) => {
       if (!payload || typeof payload.inChat !== 'boolean') return
@@ -144,8 +170,11 @@ export function initChatSocket(httpServer: HttpServer): Server {
     socket.on('disconnect', () => {
       if (socket.data.inChat) {
         changeChatPresence(user.orgId, user.sub, -1)
-        broadcastPresence(user.orgId)
       }
+
+      void recordChatLastSeen(user.sub).then((lastSeenAt) => {
+        broadcastPresence(user.orgId, { [user.sub]: lastSeenAt })
+      })
     })
 
     socket.on('chat:send', async (payload, ack) => {

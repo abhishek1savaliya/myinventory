@@ -81,11 +81,37 @@ export async function listChatUsers(orgId: string, currentUserId: string) {
       status: 'ACTIVE',
       id: { not: currentUserId },
     },
-    select: { id: true, name: true, email: true, role: true },
+    select: { id: true, name: true, email: true, role: true, chatLastSeenAt: true },
     orderBy: [{ name: 'asc' }, { email: 'asc' }],
   })
 
   return users.map(mapChatUserToSummary)
+}
+
+export async function recordChatLastSeen(userId: string): Promise<string> {
+  const now = new Date()
+  await prisma.user.update({
+    where: { id: userId },
+    data: { chatLastSeenAt: now },
+  })
+  return now.toISOString()
+}
+
+export async function getOrgChatLastSeenMap(orgId: string): Promise<Record<string, string>> {
+  const users = await prisma.user.findMany({
+    where: {
+      organizationId: orgId,
+      status: 'ACTIVE',
+      chatLastSeenAt: { not: null },
+    },
+    select: { id: true, chatLastSeenAt: true },
+  })
+
+  return Object.fromEntries(
+    users
+      .filter((user) => user.chatLastSeenAt)
+      .map((user) => [user.id, user.chatLastSeenAt!.toISOString()]),
+  )
 }
 
 export async function listConversations(
