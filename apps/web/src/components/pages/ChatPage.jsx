@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { MessageCircle, Send, Users } from 'lucide-react'
+import { MessageStatusTicks } from '@/components/chat/MessageStatusTicks'
 import { useChat } from '@/contexts/use-chat'
 import { useAuth } from '@/contexts/use-auth'
 import { Button } from '@/components/ui/button'
@@ -86,7 +87,6 @@ export function ChatPage() {
   const searchParams = useSearchParams()
   const messagesEndRef = useRef(null)
   const [draft, setDraft] = useState('')
-  const [isSending, setIsSending] = useState(false)
   const [sendError, setSendError] = useState(null)
   const [showUsersOnMobile, setShowUsersOnMobile] = useState(true)
 
@@ -186,21 +186,17 @@ export function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [activeMessages.length, activePartnerId])
 
-  async function handleSend(event) {
+  function handleSend(event) {
     event.preventDefault()
-    if (!activePartnerId || !draft.trim() || isSending) return
+    const text = draft.trim()
+    if (!activePartnerId || !text) return
 
-    setIsSending(true)
+    setDraft('')
     setSendError(null)
 
-    try {
-      await sendMessage(activePartnerId, draft)
-      setDraft('')
-    } catch (error) {
+    void sendMessage(activePartnerId, text).catch((error) => {
       setSendError(error instanceof Error ? error.message : 'Could not send message')
-    } finally {
-      setIsSending(false)
-    }
+    })
   }
 
   if (!canUseChat) {
@@ -338,14 +334,15 @@ export function ChatPage() {
                             )}
                           >
                             <p className="whitespace-pre-wrap break-words">{message.body}</p>
-                            <p
+                            <div
                               className={cn(
-                                'mt-1 text-[10px]',
+                                'mt-1 flex items-center justify-end gap-1 text-[10px]',
                                 isMine ? 'text-white/80' : 'text-[var(--color-muted)]',
                               )}
                             >
-                              {formatMessageTime(message.createdAt)}
-                            </p>
+                              <span>{formatMessageTime(message.createdAt)}</span>
+                              <MessageStatusTicks message={message} isMine={isMine} />
+                            </div>
                           </div>
                         </div>
                       )
@@ -367,9 +364,8 @@ export function ChatPage() {
                       onChange={(event) => setDraft(event.target.value)}
                       placeholder={`Message ${activeUser?.name ?? 'user'}…`}
                       maxLength={4000}
-                      disabled={isSending}
                     />
-                    <Button type="submit" disabled={isSending || !draft.trim()}>
+                    <Button type="submit" disabled={!draft.trim()}>
                       <Send className="h-4 w-4" />
                       Send
                     </Button>

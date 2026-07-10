@@ -151,20 +151,73 @@ export async function markConversationRead(
   orgId: string,
   userId: string,
   partnerId: string,
-): Promise<number> {
+): Promise<{ count: number; messageIds: string[]; readAt: string }> {
   await assertChatPartner(orgId, partnerId, userId)
 
-  const result = await prisma.chatMessage.updateMany({
+  const unreadMessages = await prisma.chatMessage.findMany({
     where: {
       organizationId: orgId,
       senderId: partnerId,
       recipientId: userId,
       readAt: null,
     },
-    data: { readAt: new Date() },
+    select: { id: true },
   })
 
-  return result.count
+  const readAt = new Date()
+
+  if (unreadMessages.length === 0) {
+    return { count: 0, messageIds: [], readAt: readAt.toISOString() }
+  }
+
+  await prisma.chatMessage.updateMany({
+    where: {
+      organizationId: orgId,
+      senderId: partnerId,
+      recipientId: userId,
+      readAt: null,
+    },
+    data: { readAt },
+  })
+
+  return {
+    count: unreadMessages.length,
+    messageIds: unreadMessages.map((message) => message.id),
+    readAt: readAt.toISOString(),
+  }
+}
+
+export async function markMessageDelivered(
+  orgId: string,
+  recipientId: string,
+  messageId: string,
+): Promise<ChatMessageDto | null> {
+  const message = await prisma.chatMessage.findFirst({
+    where: {
+      id: messageId,
+      organizationId: orgId,
+      recipientId,
+      deliveredAt: null,
+    } as {
+      id: string
+      organizationId: string
+      recipientId: string
+      deliveredAt: null
+    },
+    include: messageInclude,
+  })
+
+  if (!message) {
+    return null
+  }
+
+  const updated = await prisma.chatMessage.update({
+    where: { id: messageId },
+    data: { deliveredAt: new Date() } as { deliveredAt: Date },
+    include: messageInclude,
+  })
+
+  return mapChatMessageToDto(updated)
 }
 
 export async function getTotalUnreadCount(orgId: string, userId: string): Promise<number> {

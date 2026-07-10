@@ -6,7 +6,7 @@ import type { ChatMessageDto } from '@myinventory/shared'
 import { prisma } from '@myinventory/prisma'
 import { loadSession } from '../../lib/session-storage.js'
 import { verifyAccessToken } from '../../utils/jwt.js'
-import { markConversationRead, sendChatMessage } from './chat.service.js'
+import { markConversationRead, markMessageDelivered, sendChatMessage } from './chat.service.js'
 
 interface ChatSocketUser {
   sub: string
@@ -178,16 +178,25 @@ export function initChatSocket(httpServer: HttpServer): Server {
           return
         }
 
-        const count = await markConversationRead(user.orgId, user.sub, payload.partnerId)
-        chatIo?.to(`user:${payload.partnerId}`).emit('chat:read', {
-          partnerId: user.sub,
-          count,
-        })
-        ack?.({ ok: true, data: { count } })
+        const result = await markConversationRead(user.orgId, user.sub, payload.partnerId)
+        emitChatRead(payload.partnerId, user.sub, result)
+        ack?.({ ok: true, data: result })
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to mark messages read'
         ack?.({ ok: false, error: message })
       }
+    })
+
+    socket.on('chat:delivered', async (payload) => {
+      if (!payload || typeof payload.messageId !== 'string') return
+
+      const message = await markMessageDelivered(user.orgId, user.sub, payload.messageId)
+      if (!message) return
+
+      chatIo?.to(`user:${message.senderId}`).emit('chat:delivered', {
+        messageId: message.id,
+        deliveredAt: message.deliveredAt,
+      })
     })
   })
 
@@ -197,8 +206,23 @@ export function initChatSocket(httpServer: HttpServer): Server {
 export function emitChatMessage(message: ChatMessageDto): void {
   if (!chatIo) return
 
-  chatIo.to(`user:${message.senderId}`).emit('chat:message', message)
+  // Sender already gets the saved message from the send ack.
   chatIo.to(`user:${message.recipientId}`).emit('chat:message', message)
+}
+
+export function emitChatRead(
+  senderId: string,
+  readerId: string,
+  result: { count: number; messageIds: string[]; readAt: string },
+): void {
+  if (!chatIo || result.count === 0) return
+
+  chatIo.to(`user:${senderId}`).emit('chat:read', {
+    partnerId: readerId,
+    messageIds: result.messageIds,
+    readAt: result.readAt,
+    count: result.count,
+  })
 }
 
 export function getChatIo(): Server | null {

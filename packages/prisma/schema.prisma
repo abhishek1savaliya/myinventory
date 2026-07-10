@@ -308,6 +308,7 @@ model ChatMessage {
   senderId       String    @map("sender_id")
   recipientId    String    @map("recipient_id")
   body           String
+  deliveredAt    DateTime? @map("delivered_at")
   readAt         DateTime? @map("read_at")
   createdAt      DateTime  @default(now()) @map("created_at")
 

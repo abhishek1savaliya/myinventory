@@ -3,6 +3,7 @@ import type { ChatConversationSummary, ChatMessageDto, ChatUserSummary } from '@
 
 export function mapChatMessageToDto(
   message: ChatMessage & {
+    deliveredAt?: Date | null
     sender?: { name: string }
     recipient?: { name: string }
   },
@@ -13,6 +14,7 @@ export function mapChatMessageToDto(
     recipientId: message.recipientId,
     body: message.body,
     createdAt: message.createdAt.toISOString(),
+    deliveredAt: message.deliveredAt?.toISOString() ?? null,
     readAt: message.readAt?.toISOString() ?? null,
     senderName: message.sender?.name,
     recipientName: message.recipient?.name,

@@ -13,7 +13,7 @@ import {
   markConversationRead,
   sendChatMessage,
 } from './chat.service.js'
-import { emitChatMessage } from './chat.socket.js'
+import { emitChatMessage, emitChatRead } from './chat.socket.js'
 
 export const chatRouter = Router()
 
@@ -91,7 +91,8 @@ chatRouter.post(
   asyncHandler(async (req, res) => {
     const { user } = req as AuthenticatedRequest
     const orgId = requireOrgId(req)
-    const count = await markConversationRead(orgId, user.sub, req.params.partnerId)
-    res.json({ data: { count } })
+    const result = await markConversationRead(orgId, user.sub, req.params.partnerId)
+    emitChatRead(req.params.partnerId, user.sub, result)
+    res.json({ data: result })
   }),
 )

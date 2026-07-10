@@ -200,6 +200,64 @@ export function ChatProvider({ children }) {
     })
   }, [])
 
+  const replaceOptimisticMessage = useCallback((partnerId, clientId, confirmed) => {
+    const nextMessage = {
+      ...confirmed,
+      deliveredAt: confirmed.deliveredAt ?? null,
+      readAt: confirmed.readAt ?? null,
+      clientStatus: 'sent',
+    }
+
+    setMessagesByPartner((prev) => ({
+      ...prev,
+      [partnerId]: (prev[partnerId] ?? []).map((item) =>
+        item.id === clientId ? nextMessage : item,
+      ),
+    }))
+
+    setConversations((prev) =>
+      prev.map((item) =>
+        item.partnerId === partnerId ? { ...item, lastMessage: nextMessage } : item,
+      ),
+    )
+  }, [])
+
+  const markOptimisticFailed = useCallback((partnerId, clientId) => {
+    setMessagesByPartner((prev) => ({
+      ...prev,
+      [partnerId]: (prev[partnerId] ?? []).map((item) =>
+        item.id === clientId ? { ...item, failed: true, clientStatus: 'failed' } : item,
+      ),
+    }))
+  }, [])
+
+  const applyMessageDelivered = useCallback((messageId, deliveredAt) => {
+    setMessagesByPartner((prev) => {
+      const next = {}
+
+      for (const [partnerId, messages] of Object.entries(prev)) {
+        next[partnerId] = messages.map((item) =>
+          item.id === messageId
+            ? { ...item, deliveredAt: deliveredAt ?? new Date().toISOString() }
+            : item,
+        )
+      }
+
+      return next
+    })
+  }, [])
+
+  const applyMessagesRead = useCallback((partnerId, messageIds, readAt) => {
+    const idSet = new Set(messageIds)
+
+    setMessagesByPartner((prev) => ({
+      ...prev,
+      [partnerId]: (prev[partnerId] ?? []).map((item) =>
+        idSet.has(item.id) ? { ...item, readAt: readAt ?? new Date().toISOString() } : item,
+      ),
+    }))
+  }, [])
+
   const handleIncomingMessage = useCallback(
     (message) => {
       appendMessage(message)
@@ -209,6 +267,10 @@ export function ChatProvider({ children }) {
       const partnerId = isIncoming ? message.senderId : message.recipientId
       const viewingConversation =
         isOnChatPageRef.current && activePartnerRef.current === partnerId
+
+      if (isIncoming) {
+        socketRef.current?.emit('chat:delivered', { messageId: message.id })
+      }
 
       if (isIncoming && !viewingConversation) {
         setTotalUnread((prev) => prev + 1)
@@ -243,31 +305,55 @@ export function ChatProvider({ children }) {
 
   const sendMessage = useCallback(
     async (recipientId, body) => {
-      if (!canUseChat || !recipientId || !body.trim()) {
+      const trimmed = body.trim()
+      const currentUserId = userIdRef.current
+
+      if (!canUseChat || !recipientId || !trimmed || !currentUserId) {
         return null
       }
 
-      const socket = socketRef.current
-      if (socket?.connected) {
-        return new Promise((resolve, reject) => {
-          socket.emit('chat:send', { recipientId, body: body.trim() }, (response) => {
-            if (!response?.ok) {
-              reject(new Error(response?.error ?? 'Failed to send message'))
-              return
-            }
-            resolve(response.data)
-          })
-        })
+      const clientId = `temp-${crypto.randomUUID()}`
+      const optimistic = {
+        id: clientId,
+        senderId: currentUserId,
+        recipientId,
+        body: trimmed,
+        createdAt: new Date().toISOString(),
+        deliveredAt: null,
+        readAt: null,
+        clientStatus: 'sending',
       }
 
-      const response = await apiFetch(`/api/chat/messages/${recipientId}`, {
-        method: 'POST',
-        body: JSON.stringify({ body: body.trim() }),
-      })
-      appendMessage(response.data)
-      return response.data
+      appendMessage(optimistic)
+
+      try {
+        const socket = socketRef.current
+        if (socket?.connected) {
+          const confirmed = await new Promise((resolve, reject) => {
+            socket.emit('chat:send', { recipientId, body: trimmed }, (response) => {
+              if (!response?.ok) {
+                reject(new Error(response?.error ?? 'Failed to send message'))
+                return
+              }
+              resolve(response.data)
+            })
+          })
+          replaceOptimisticMessage(recipientId, clientId, confirmed)
+          return confirmed
+        }
+
+        const response = await apiFetch(`/api/chat/messages/${recipientId}`, {
+          method: 'POST',
+          body: JSON.stringify({ body: trimmed }),
+        })
+        replaceOptimisticMessage(recipientId, clientId, response.data)
+        return response.data
+      } catch (error) {
+        markOptimisticFailed(recipientId, clientId)
+        throw error
+      }
     },
-    [appendMessage, canUseChat],
+    [appendMessage, canUseChat, markOptimisticFailed, replaceOptimisticMessage],
   )
 
   const dismissNotification = useCallback((partnerId) => {
@@ -281,10 +367,14 @@ export function ChatProvider({ children }) {
   const refreshConversationsRef = useRef(refreshConversations)
   const refreshUsersRef = useRef(refreshUsers)
   const handleIncomingMessageRef = useRef(handleIncomingMessage)
+  const applyMessageDeliveredRef = useRef(applyMessageDelivered)
+  const applyMessagesReadRef = useRef(applyMessagesRead)
 
   refreshConversationsRef.current = refreshConversations
   refreshUsersRef.current = refreshUsers
   handleIncomingMessageRef.current = handleIncomingMessage
+  applyMessageDeliveredRef.current = applyMessageDelivered
+  applyMessagesReadRef.current = applyMessagesRead
 
   useEffect(() => {
     if (!canUseChat || !API_BASE_URL) {
@@ -325,8 +415,21 @@ export function ChatProvider({ children }) {
       handleIncomingMessageRef.current(message)
     }
 
-    const onRead = () => {
+    const onRead = (payload) => {
+      if (payload?.partnerId && Array.isArray(payload.messageIds)) {
+        applyMessagesReadRef.current(
+          payload.partnerId,
+          payload.messageIds,
+          payload.readAt,
+        )
+      }
       void refreshConversationsRef.current()
+    }
+
+    const onDelivered = (payload) => {
+      if (payload?.messageId) {
+        applyMessageDeliveredRef.current(payload.messageId, payload.deliveredAt)
+      }
     }
 
     const onPresenceSync = ({ liveUserIds: nextLiveUserIds }) => {
@@ -337,6 +440,7 @@ export function ChatProvider({ children }) {
     socket.on('disconnect', onDisconnect)
     socket.on('chat:message', onMessage)
     socket.on('chat:read', onRead)
+    socket.on('chat:delivered', onDelivered)
     socket.on('chat:presence:sync', onPresenceSync)
 
     if (socket.connected) {
@@ -348,6 +452,7 @@ export function ChatProvider({ children }) {
       socket.off('disconnect', onDisconnect)
       socket.off('chat:message', onMessage)
       socket.off('chat:read', onRead)
+      socket.off('chat:delivered', onDelivered)
       socket.off('chat:presence:sync', onPresenceSync)
 
       if (isOnChatPageRef.current) {
