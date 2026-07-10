@@ -32,6 +32,7 @@ const envSchema = z.object({
   UPSTASH_REDIS_REST_TOKEN: z.string().min(1, 'UPSTASH_REDIS_REST_TOKEN is required'),
   CACHE_TTL_CATALOG_SECONDS: z.coerce.number().int().min(30).default(300),
   CACHE_TTL_INVENTORY_SECONDS: z.coerce.number().int().min(15).default(60),
+  CACHE_TTL_SCAN_BARCODE_SECONDS: z.coerce.number().int().min(5).default(30),
 })
 
 const parsed = envSchema.safeParse(process.env)
@@ -61,4 +62,5 @@ export const env = {
   upstashRedisRestToken: parsed.data.UPSTASH_REDIS_REST_TOKEN,
   cacheTtlCatalogSeconds: parsed.data.CACHE_TTL_CATALOG_SECONDS,
   cacheTtlInventorySeconds: parsed.data.CACHE_TTL_INVENTORY_SECONDS,
+  cacheTtlScanBarcodeSeconds: parsed.data.CACHE_TTL_SCAN_BARCODE_SECONDS,
 } as const

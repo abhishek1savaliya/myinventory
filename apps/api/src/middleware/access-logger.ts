@@ -17,9 +17,9 @@ function getUserAgent(req: Request): string | null {
   return typeof agent === 'string' ? agent.slice(0, 512) : null
 }
 
-/** Persists every /api request to Supabase Storage (date-wise files, non-blocking). */
+/** Persists API requests to Supabase Storage (date-wise files, non-blocking). */
 export function apiAccessLogger(req: Request, res: Response, next: NextFunction): void {
-  if (!req.originalUrl.startsWith('/api')) {
+  if (!req.originalUrl.startsWith('/api') || req.originalUrl.startsWith('/api/health')) {
     next()
     return
   }

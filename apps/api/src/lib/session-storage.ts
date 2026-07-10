@@ -1,88 +1,53 @@
 import { randomUUID } from 'node:crypto'
-import { supabaseAdmin } from './supabase.js'
-import { env } from '../config/env.js'
-import { AppError } from '../middleware/error-handler.js'
+import { redis } from './redis.js'
 
 export interface StoredSession {
   token: string
   userId: string
   expiresAt: string
 }
+const SESSION_KEY_PREFIX = 'myinventory:session'
 
-let bucketEnsured = false
-
-export async function ensureSessionBucket(): Promise<void> {
-  if (bucketEnsured) {
-    return
-  }
-
-  const { data: buckets, error: listError } = await supabaseAdmin.storage.listBuckets()
-  if (listError) {
-    throw listError
-  }
-
-  const exists = buckets.some((bucket) => bucket.name === env.supabaseSessionsBucket)
-  if (!exists) {
-    const { error: createError } = await supabaseAdmin.storage.createBucket(env.supabaseSessionsBucket, {
-      public: false,
-    })
-    if (createError && !createError.message.toLowerCase().includes('already exists')) {
-      throw createError
-    }
-  }
-
-  bucketEnsured = true
+function sessionKey(sessionId: string): string {
+  return `${SESSION_KEY_PREFIX}:${sessionId}`
 }
 
-function sessionPath(sessionId: string): string {
-  return `${sessionId}.json`
+function sessionTtlSeconds(expiresAt: string): number {
+  const seconds = Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000)
+  return Math.max(60, Math.min(seconds, 60 * 60 * 24 * 30))
+}
+
+function isSessionExpired(session: StoredSession): boolean {
+  return new Date(session.expiresAt).getTime() <= Date.now()
+}
+
+export async function ensureSessionBucket(): Promise<void> {
+  // Sessions are stored in Redis. Kept for startup compatibility.
 }
 
 export async function saveSession(sessionId: string, session: StoredSession): Promise<void> {
-  await ensureSessionBucket()
-
-  const { error } = await supabaseAdmin.storage
-    .from(env.supabaseSessionsBucket)
-    .upload(sessionPath(sessionId), JSON.stringify(session), {
-      contentType: 'application/json',
-      upsert: true,
-    })
-
-  if (error) {
-    throw new AppError(500, `Failed to save session: ${error.message}`)
-  }
+  await redis.set(sessionKey(sessionId), session, {
+    ex: sessionTtlSeconds(session.expiresAt),
+  })
 }
 
 export async function loadSession(sessionId: string): Promise<StoredSession | null> {
-  await ensureSessionBucket()
+  const session = await redis.get<StoredSession>(sessionKey(sessionId))
 
-  const { data, error } = await supabaseAdmin.storage
-    .from(env.supabaseSessionsBucket)
-    .download(sessionPath(sessionId))
-
-  if (error || !data) {
+  if (!session?.token || !session.userId || !session.expiresAt) {
     return null
   }
 
-  try {
-    const parsed = JSON.parse(await data.text()) as StoredSession
-    if (!parsed.token || !parsed.userId || !parsed.expiresAt) {
-      return null
-    }
-    if (new Date(parsed.expiresAt).getTime() <= Date.now()) {
-      await deleteSession(sessionId)
-      return null
-    }
-    return parsed
-  } catch {
+  if (isSessionExpired(session)) {
+    await deleteSession(sessionId)
     return null
   }
+
+  return session
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
-  await ensureSessionBucket()
-
-  await supabaseAdmin.storage.from(env.supabaseSessionsBucket).remove([sessionPath(sessionId)])
+  await redis.del(sessionKey(sessionId))
 }
 
 export function createSessionId(): string {

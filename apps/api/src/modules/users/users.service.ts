@@ -11,6 +11,7 @@ import { UserRole, UserStatus, computeExtraFeatures, getEffectiveFeatures, AppFe
 import bcrypt from 'bcryptjs'
 import { prisma } from '@myinventory/prisma'
 import { AppError } from '../../middleware/error-handler.js'
+import { invalidateUserAuthCache } from '../../lib/user-auth-cache.js'
 import { mapUserToAuthUser, toPrismaFeatures, userWithOrganizationInclude } from './user.mapper.js'
 
 type DisableRequestWithUsers = UserDisableRequest & {
@@ -343,6 +344,8 @@ export async function updateUserFeatures(
     },
   })
 
+  await invalidateUserAuthCache(targetUserId)
+
   return reloadAuthUser(targetUserId)
 }
 
@@ -381,6 +384,8 @@ export async function updateUserRole(
       extraFeatures: toPrismaFeatures(extraFeatures),
     },
   })
+
+  await invalidateUserAuthCache(targetUserId)
 
   return reloadAuthUser(targetUserId)
 }

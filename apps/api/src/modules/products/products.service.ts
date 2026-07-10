@@ -11,7 +11,7 @@ import type {
 import { MAX_PRODUCT_IMAGES, ProductStatus } from '@myinventory/shared'
 import { prisma } from '@myinventory/prisma'
 import { AppError } from '../../middleware/error-handler.js'
-import { cacheGetOrSet, cacheTtl, invalidateCache, stableCacheSuffix } from '../../lib/cache.js'
+import { cacheGetOrSet, cacheDeleteSuffix, cacheTtl, invalidateCache, stableCacheSuffix } from '../../lib/cache.js'
 import { deleteProductImagesFromUrls, uploadProductImageFromBase64 } from '../../lib/product-images.js'
 
 type ProductWithImages = Product & { images: ProductImage[] }
@@ -193,6 +193,14 @@ function buildProductWhere(organizationId: string, query: ProductListQuery) {
   return where
 }
 
+function scanBarcodeCacheSuffix(organizationId: string, barcode: string): string {
+  return stableCacheSuffix('scan-barcode', { organizationId, barcode: barcode.trim() })
+}
+
+async function invalidateScanBarcodeCache(organizationId: string, barcode: string): Promise<void> {
+  await cacheDeleteSuffix('products', scanBarcodeCacheSuffix(organizationId, barcode))
+}
+
 export async function listProducts(organizationId: string, query: ProductListQuery) {
   return cacheGetOrSet(
     'products',
@@ -264,27 +272,34 @@ export async function getProductByBarcode(
   )
 }
 
-/** Fast path for scan — skips Redis to reduce lookup latency. */
+/** Fast scan lookup with short-lived Redis cache. */
 export async function lookupProductByBarcodeForScan(
   organizationId: string,
   barcode: string,
 ): Promise<ProductDto> {
   const normalizedBarcode = barcode.trim()
 
-  const product = await prisma.product.findUnique({
-    where: {
-      organizationId_barcode: {
-        organizationId,
-        barcode: normalizedBarcode,
-      },
+  return cacheGetOrSet(
+    'products',
+    scanBarcodeCacheSuffix(organizationId, normalizedBarcode),
+    cacheTtl.scan,
+    async () => {
+      const product = await prisma.product.findUnique({
+        where: {
+          organizationId_barcode: {
+            organizationId,
+            barcode: normalizedBarcode,
+          },
+        },
+      })
+
+      if (!product) {
+        throw new AppError(404, 'Product not found')
+      }
+
+      return toProductDto(product)
     },
-  })
-
-  if (!product) {
-    throw new AppError(404, 'Product not found')
-  }
-
-  return toProductDto(product)
+  )
 }
 
 export async function createProduct(
@@ -319,6 +334,7 @@ export async function createProduct(
 
     await invalidateCache('products')
     await invalidateCache('inventory')
+    await invalidateScanBarcodeCache(organizationId, product.barcode)
 
     return getProductById(organizationId, product.id)
   } catch (error) {
@@ -374,7 +390,14 @@ export async function updateProduct(
   id: string,
   input: UpdateProductInput,
 ): Promise<ProductDto> {
-  await getProductById(organizationId, id)
+  const existing = await prisma.product.findFirst({
+    where: { id, organizationId },
+    select: { barcode: true },
+  })
+
+  if (!existing) {
+    throw new AppError(404, 'Product not found')
+  }
 
   try {
     const product = await prisma.product.update({
@@ -414,6 +437,10 @@ export async function updateProduct(
 
     await invalidateCache('products')
     await invalidateCache('inventory')
+    await invalidateScanBarcodeCache(organizationId, existing.barcode)
+    if (input.barcode?.trim() && input.barcode.trim() !== existing.barcode) {
+      await invalidateScanBarcodeCache(organizationId, input.barcode.trim())
+    }
 
     return getProductById(organizationId, product.id)
   } catch (error) {
@@ -422,7 +449,14 @@ export async function updateProduct(
 }
 
 export async function disableProduct(organizationId: string, id: string): Promise<ProductDto> {
-  await getProductById(organizationId, id)
+  const existing = await prisma.product.findFirst({
+    where: { id, organizationId },
+    select: { barcode: true },
+  })
+
+  if (!existing) {
+    throw new AppError(404, 'Product not found')
+  }
 
   const product = await prisma.product.update({
     where: { id },
@@ -431,6 +465,7 @@ export async function disableProduct(organizationId: string, id: string): Promis
 
   await invalidateCache('products')
   await invalidateCache('inventory')
+  await invalidateScanBarcodeCache(organizationId, existing.barcode)
 
   return toProductDto(product, [])
 }

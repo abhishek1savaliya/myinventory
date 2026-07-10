@@ -1,5 +1,6 @@
 import express from 'express'
 import cors from 'cors'
+import compression from 'compression'
 import { checkDatabaseConnection, disconnectDatabase } from '@myinventory/prisma'
 import { env } from './config/env.js'
 import { apiRouter } from './routes/index.js'
@@ -16,7 +17,9 @@ import { checkRedisConnection } from './lib/redis.js'
 
 const app = express()
 
+app.set('trust proxy', 1)
 app.use(cors({ origin: true, credentials: true }))
+app.use(compression())
 app.use(express.json({ limit: '5mb' }))
 app.use(apiAccessLogger)
 
@@ -27,39 +30,40 @@ app.use(errorHandler)
 
 async function startServer(): Promise<void> {
   try {
-    await checkDatabaseConnection()
+    await Promise.all([
+      checkDatabaseConnection(),
+      ensureAccessLogBucket(),
+      ensureSessionBucket(),
+      ensureProductImagesBucket(),
+      ensureOrgBrandingBucket(),
+      checkRedisConnection(),
+    ])
     console.log('[MyInventory API] Database connection verified')
-    await ensureAccessLogBucket()
     console.log('[MyInventory API] Supabase access-log storage ready')
-    await ensureSessionBucket()
-    console.log('[MyInventory API] Supabase session storage ready')
-    await ensureProductImagesBucket()
+    console.log('[MyInventory API] Session storage ready')
     console.log('[MyInventory API] Supabase product-images storage ready')
-    await ensureOrgBrandingBucket()
     console.log('[MyInventory API] Supabase org-branding storage ready')
-    await checkRedisConnection()
     console.log('[MyInventory API] Redis cache connected')
   } catch (error) {
-    console.error('[MyInventory API] Database connection failed')
+    console.error('[MyInventory API] Startup checks failed')
     if (error instanceof Error) {
       console.error(error.message)
     }
     process.exit(1)
   }
 
-  // Prefer runtime-provided PORT/HOST when available (e.g., Render, Heroku).
   const runtimePort = process.env.PORT ? Number(process.env.PORT) : env.apiPort
   const runtimeHost = process.env.API_HOST ?? process.env.HOST ?? env.apiHost
 
-  // Diagnostic logs to help Render troubleshooting — will show what env vars
-  // the process actually sees at runtime. Remove or reduce verbosity later.
-  console.log('[MyInventory API] runtime env:', {
-    PORT: process.env.PORT,
-    API_HOST: process.env.API_HOST,
-    HOST: process.env.HOST,
-    env_apiHost: env.apiHost,
-    env_apiPort: env.apiPort,
-  })
+  if (env.nodeEnv !== 'production') {
+    console.log('[MyInventory API] runtime env:', {
+      PORT: process.env.PORT,
+      API_HOST: process.env.API_HOST,
+      HOST: process.env.HOST,
+      env_apiHost: env.apiHost,
+      env_apiPort: env.apiPort,
+    })
+  }
 
   const server = app.listen(runtimePort, runtimeHost, () => {
     console.log(`[MyInventory API] listening on http://${runtimeHost}:${runtimePort}`)
