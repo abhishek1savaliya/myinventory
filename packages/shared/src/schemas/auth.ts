@@ -1,13 +1,23 @@
 import { z } from 'zod'
 import { UserRole } from '../types/index.js'
 import { AppFeature } from '../types/features.js'
+import { orgCodeSchema } from './organizations.js'
 
 export const loginSchema = z.object({
+  orgId: orgCodeSchema,
   email: z.string().email('Invalid email address'),
   password: z.string().min(1, 'Password is required'),
 })
 
 export type LoginInput = z.infer<typeof loginSchema>
+
+const organizationSummarySchema = z.object({
+  id: z.string(),
+  orgCode: orgCodeSchema,
+  slug: z.string(),
+  name: z.string(),
+  tradingName: z.string(),
+})
 
 export const authUserSchema = z.object({
   id: z.string(),
@@ -18,6 +28,7 @@ export const authUserSchema = z.object({
   createdAt: z.string(),
   extraFeatures: z.array(z.nativeEnum(AppFeature)),
   features: z.array(z.nativeEnum(AppFeature)),
+  organization: organizationSummarySchema,
 })
 
 export const loginResponseSchema = z.object({

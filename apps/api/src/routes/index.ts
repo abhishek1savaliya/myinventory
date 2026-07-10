@@ -7,9 +7,11 @@ import { warehousesRouter } from '../modules/warehouses/warehouses.routes.js'
 import { locationsRouter } from '../modules/locations/locations.routes.js'
 import { inventoryRouter } from '../modules/inventory/inventory.routes.js'
 import { transactionsRouter } from '../modules/transactions/transactions.routes.js'
+import { organizationsRouter } from '../modules/organizations/organizations.routes.js'
 export const apiRouter = Router()
 
 apiRouter.use(healthRouter)
+apiRouter.use(organizationsRouter)
 apiRouter.use(authRouter)
 apiRouter.use(usersRouter)
 apiRouter.use(productsRouter)

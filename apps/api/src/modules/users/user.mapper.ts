@@ -7,8 +7,19 @@ import {
   UserStatus,
   getEffectiveFeatures,
 } from '@myinventory/shared'
+import { mapOrganizationToSummary } from '../organizations/organization.mapper.js'
 
-export function mapUserToAuthUser(user: User): AuthUser {
+type UserWithOrganization = User & {
+  organization: {
+    id: string
+    orgCode: string
+    slug: string
+    name: string
+    tradingName: string
+  }
+}
+
+export function mapUserToAuthUser(user: UserWithOrganization): AuthUser {
   const extraFeatures = (user.extraFeatures ?? []) as AppFeature[]
 
   return {
@@ -20,9 +31,22 @@ export function mapUserToAuthUser(user: User): AuthUser {
     createdAt: user.createdAt.toISOString(),
     extraFeatures,
     features: getEffectiveFeatures(user.role as UserRole, extraFeatures),
+    organization: mapOrganizationToSummary(user.organization),
   }
 }
 
 export function toPrismaFeatures(features: AppFeature[]): PrismaAppFeature[] {
   return features as PrismaAppFeature[]
 }
+
+export const userWithOrganizationInclude = {
+  organization: {
+    select: {
+      id: true,
+      orgCode: true,
+      slug: true,
+      name: true,
+      tradingName: true,
+    },
+  },
+} as const

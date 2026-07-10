@@ -74,21 +74,45 @@ enum AdjustmentReason {
   OTHER
 }
 
-model User {
-  id           String     @id @default(cuid())
-  name         String
-  email        String     @unique
-  passwordHash String     @map("password_hash")
-  role          UserRole   @default(WAREHOUSE_USER)
-  status        UserStatus @default(ACTIVE)
-  extraFeatures AppFeature[] @default([]) @map("extra_features")
-  createdAt     DateTime   @default(now()) @map("created_at")
+model Organization {
+  id            String   @id @default(cuid())
+  orgCode       String   @unique @map("org_code")
+  name          String
+  tradingName   String   @map("trading_name")
+  ownerName     String   @map("owner_name")
+  email         String
+  contactNumber String   @map("contact_number")
+  slug          String   @unique
+  createdAt     DateTime @default(now()) @map("created_at")
 
+  users      User[]
+  products   Product[]
+  warehouses Warehouse[]
+
+  @@index([orgCode])
+  @@index([slug])
+  @@map("organizations")
+}
+
+model User {
+  id             String     @id @default(cuid())
+  organizationId String     @map("organization_id")
+  name           String
+  email          String
+  passwordHash   String     @map("password_hash")
+  role           UserRole   @default(WAREHOUSE_USER)
+  status         UserStatus @default(ACTIVE)
+  extraFeatures  AppFeature[] @default([]) @map("extra_features")
+  createdAt      DateTime   @default(now()) @map("created_at")
+
+  organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   transactions           InventoryTransaction[]
   devices                Device[]
   disableRequestsTarget  UserDisableRequest[] @relation("DisableTarget")
   disableRequestsMade    UserDisableRequest[] @relation("DisableRequester")
 
+  @@unique([organizationId, email])
+  @@index([organizationId])
   @@index([email])
   @@index([role])
   @@map("users")
@@ -96,8 +120,9 @@ model User {
 
 model Product {
   id                String        @id @default(cuid())
-  sku               String        @unique
-  barcode           String        @unique
+  organizationId    String        @map("organization_id")
+  sku               String
+  barcode           String
   name              String
   description       String?
   category          String?
@@ -107,10 +132,14 @@ model Product {
   createdAt         DateTime      @default(now()) @map("created_at")
   updatedAt         DateTime      @updatedAt @map("updated_at")
 
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   images       ProductImage[]
   inventory    Inventory[]
   transactions InventoryTransaction[]
 
+  @@unique([organizationId, sku])
+  @@unique([organizationId, barcode])
+  @@index([organizationId])
   @@index([sku])
   @@index([barcode])
   @@index([status])
@@ -131,19 +160,23 @@ model ProductImage {
 }
 
 model Warehouse {
-  id        String          @id @default(cuid())
-  code      String          @unique
-  name      String
-  address   String?
-  status    WarehouseStatus @default(ACTIVE)
-  createdAt DateTime        @default(now()) @map("created_at")
-  updatedAt DateTime        @updatedAt @map("updated_at")
+  id             String          @id @default(cuid())
+  organizationId String          @map("organization_id")
+  code           String
+  name           String
+  address        String?
+  status         WarehouseStatus @default(ACTIVE)
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
 
+  organization            Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   locations               Location[]
   inventory               Inventory[]
   sourceTransactions      InventoryTransaction[] @relation("SourceWarehouse")
   destinationTransactions InventoryTransaction[] @relation("DestinationWarehouse")
 
+  @@unique([organizationId, code])
+  @@index([organizationId])
   @@index([code])
   @@index([status])
   @@map("warehouses")

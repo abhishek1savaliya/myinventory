@@ -10,6 +10,7 @@ import { validateBody } from '../../middleware/validate.js'
 import { validateQuery } from '../../middleware/validate-query.js'
 import { authenticate } from '../../middleware/auth.js'
 import { requireRoles } from '../../middleware/rbac.js'
+import { requireOrgId } from '../../lib/org-context.js'
 import {
   createLocation,
   getLocationById,
@@ -26,7 +27,8 @@ locationsRouter.get(
   asyncHandler(authenticate),
   validateQuery(locationListQuerySchema),
   asyncHandler(async (req, res) => {
-    const result = await listLocations(req.query as never)
+    const orgId = requireOrgId(req)
+    const result = await listLocations(orgId, req.query as never)
     res.json(result)
   }),
 )
@@ -35,7 +37,8 @@ locationsRouter.get(
   '/locations/:id',
   asyncHandler(authenticate),
   asyncHandler(async (req, res) => {
-    const location = await getLocationById(req.params.id)
+    const orgId = requireOrgId(req)
+    const location = await getLocationById(orgId, req.params.id)
     res.json({ data: location })
   }),
 )
@@ -46,7 +49,8 @@ locationsRouter.post(
   requireRoles(...manageRoles),
   validateBody(createLocationSchema),
   asyncHandler(async (req, res) => {
-    const location = await createLocation(req.body)
+    const orgId = requireOrgId(req)
+    const location = await createLocation(orgId, req.body)
     res.status(201).json({ data: location })
   }),
 )
@@ -57,7 +61,8 @@ locationsRouter.put(
   requireRoles(...manageRoles),
   validateBody(updateLocationSchema),
   asyncHandler(async (req, res) => {
-    const location = await updateLocation(req.params.id, req.body)
+    const orgId = requireOrgId(req)
+    const location = await updateLocation(orgId, req.params.id, req.body)
     res.json({ data: location })
   }),
 )

@@ -1,5 +1,6 @@
 export * from './auth.js'
 export * from './common.js'
+export * from './organizations.js'
 export * from './products.js'
 export * from './warehouses.js'
 export * from './locations.js'

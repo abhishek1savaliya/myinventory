@@ -38,20 +38,23 @@ const locationInclude = {
   },
 } as const
 
-export async function listLocations(query: LocationListQuery) {
+export async function listLocations(organizationId: string, query: LocationListQuery) {
   return cacheGetOrSet(
     'locations',
-    stableCacheSuffix('list', query),
+    stableCacheSuffix('list', { organizationId, ...query }),
     cacheTtl.catalog,
     async () => {
       const where: {
+        warehouse: { organizationId: string }
         OR?: Array<{
           code?: { contains: string; mode: 'insensitive' }
           zone?: { contains: string; mode: 'insensitive' }
         }>
         warehouseId?: string
         status?: LocationStatus
-      } = {}
+      } = {
+        warehouse: { organizationId },
+      }
 
       if (query.search) {
         where.OR = [
@@ -91,24 +94,32 @@ export async function listLocations(query: LocationListQuery) {
   )
 }
 
-export async function getLocationById(id: string): Promise<LocationDto> {
-  return cacheGetOrSet('locations', stableCacheSuffix('id', { id }), cacheTtl.catalog, async () => {
-    const location = await prisma.location.findUnique({
-      where: { id },
-      include: locationInclude,
-    })
+export async function getLocationById(organizationId: string, id: string): Promise<LocationDto> {
+  return cacheGetOrSet(
+    'locations',
+    stableCacheSuffix('id', { organizationId, id }),
+    cacheTtl.catalog,
+    async () => {
+      const location = await prisma.location.findFirst({
+        where: { id, warehouse: { organizationId } },
+        include: locationInclude,
+      })
 
-    if (!location) {
-      throw new AppError(404, 'Location not found')
-    }
+      if (!location) {
+        throw new AppError(404, 'Location not found')
+      }
 
-    return toLocationDto(location)
-  })
+      return toLocationDto(location)
+    },
+  )
 }
 
-export async function createLocation(input: CreateLocationInput): Promise<LocationDto> {
-  const warehouse = await prisma.warehouse.findUnique({
-    where: { id: input.warehouseId },
+export async function createLocation(
+  organizationId: string,
+  input: CreateLocationInput,
+): Promise<LocationDto> {
+  const warehouse = await prisma.warehouse.findFirst({
+    where: { id: input.warehouseId, organizationId },
   })
 
   if (!warehouse) {
@@ -142,10 +153,11 @@ export async function createLocation(input: CreateLocationInput): Promise<Locati
 }
 
 export async function updateLocation(
+  organizationId: string,
   id: string,
   input: UpdateLocationInput,
 ): Promise<LocationDto> {
-  await getLocationById(id)
+  await getLocationById(organizationId, id)
 
   try {
     const location = await prisma.location.update({

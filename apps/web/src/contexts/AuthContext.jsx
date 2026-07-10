@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch, setSessionGetter, setUnauthorizedHandler } from '@/lib/api-client'
-import { clearStoredSession, getStoredSessionId, setStoredSessionId } from '@/lib/auth-storage'
+import {
+  clearStoredSession,
+  getStoredOrgSlug,
+  getStoredSessionId,
+  setStoredSessionId,
+} from '@/lib/auth-storage'
 import { AuthContext } from './auth-context'
 import { AppFeature } from '@myinventory/shared'
 
@@ -57,8 +62,9 @@ export function AuthProvider({ children }) {
       body: JSON.stringify(input),
     })
 
-    setStoredSessionId(response.sessionId)
+    setStoredSessionId(response.sessionId, response.user.organization.slug)
     setUser(response.user)
+    return response.user
   }, [])
 
   const hasRole = useCallback(
@@ -80,6 +86,7 @@ export function AuthProvider({ children }) {
   const value = useMemo(
     () => ({
       user,
+      orgSlug: user?.organization?.slug ?? getStoredOrgSlug(),
       isAuthenticated: user !== null,
       isLoading,
       login,

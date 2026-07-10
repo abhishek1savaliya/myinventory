@@ -33,8 +33,12 @@ type LockedInventoryRow = {
   reserved_quantity: number
 }
 
-async function validateProduct(tx: PrismaTransactionClient, productId: string) {
-  const product = await tx.product.findUnique({ where: { id: productId } })
+async function validateProduct(
+  tx: PrismaTransactionClient,
+  organizationId: string,
+  productId: string,
+) {
+  const product = await tx.product.findFirst({ where: { id: productId, organizationId } })
 
   if (!product) {
     throw new AppError(404, 'Product not found')
@@ -49,11 +53,12 @@ async function validateProduct(tx: PrismaTransactionClient, productId: string) {
 
 async function validateLocationInWarehouse(
   tx: PrismaTransactionClient,
+  organizationId: string,
   warehouseId: string,
   locationId: string,
 ) {
   const location = await tx.location.findFirst({
-    where: { id: locationId, warehouseId },
+    where: { id: locationId, warehouseId, warehouse: { organizationId } },
     include: { warehouse: true },
   })
 
@@ -94,13 +99,15 @@ async function invalidateInventoryCache(): Promise<void> {
   await invalidateCache('inventory')
 }
 
-export async function listInventory(query: InventoryListQuery) {
+export async function listInventory(organizationId: string, query: InventoryListQuery) {
   return cacheGetOrSet(
     'inventory',
-    stableCacheSuffix('list', query),
+    stableCacheSuffix('list', { organizationId, ...query }),
     cacheTtl.inventory,
     async () => {
-      const where: Prisma.InventoryWhereInput = {}
+      const where: Prisma.InventoryWhereInput = {
+        warehouse: { organizationId },
+      }
 
       if (query.productId) where.productId = query.productId
       if (query.warehouseId) where.warehouseId = query.warehouseId
@@ -145,13 +152,16 @@ export async function listInventory(query: InventoryListQuery) {
   )
 }
 
-export async function getInventoryByProduct(productId: string): Promise<InventoryItemDto[]> {
+export async function getInventoryByProduct(
+  organizationId: string,
+  productId: string,
+): Promise<InventoryItemDto[]> {
   return cacheGetOrSet(
     'inventory',
-    stableCacheSuffix('product', { productId }),
+    stableCacheSuffix('product', { organizationId, productId }),
     cacheTtl.inventory,
     async () => {
-      const product = await prisma.product.findUnique({ where: { id: productId } })
+      const product = await prisma.product.findFirst({ where: { id: productId, organizationId } })
 
       if (!product) {
         throw new AppError(404, 'Product not found')
@@ -169,12 +179,13 @@ export async function getInventoryByProduct(productId: string): Promise<Inventor
 }
 
 export async function receiveStock(
+  organizationId: string,
   input: ReceiveStockInput,
   userId: string,
 ): Promise<StockOperationResult> {
   return prisma.$transaction(async (tx) => {
-    const product = await validateProduct(tx, input.productId)
-    await validateLocationInWarehouse(tx, input.warehouseId, input.locationId)
+    const product = await validateProduct(tx, organizationId, input.productId)
+    await validateLocationInWarehouse(tx, organizationId, input.warehouseId, input.locationId)
 
     const row = await ensureInventoryRow(
       tx,
@@ -216,12 +227,13 @@ export async function receiveStock(
 }
 
 export async function returnStock(
+  organizationId: string,
   input: ReturnStockInput,
   userId: string,
 ): Promise<StockOperationResult> {
   return prisma.$transaction(async (tx) => {
-    const product = await validateProduct(tx, input.productId)
-    await validateLocationInWarehouse(tx, input.warehouseId, input.locationId)
+    const product = await validateProduct(tx, organizationId, input.productId)
+    await validateLocationInWarehouse(tx, organizationId, input.warehouseId, input.locationId)
 
     const row = await ensureInventoryRow(
       tx,
@@ -261,6 +273,7 @@ export async function returnStock(
 }
 
 export async function moveStock(
+  organizationId: string,
   input: MoveStockInput,
   userId: string,
 ): Promise<MoveStockResult> {
@@ -272,10 +285,11 @@ export async function moveStock(
   }
 
   return prisma.$transaction(async (tx) => {
-    const product = await validateProduct(tx, input.productId)
-    await validateLocationInWarehouse(tx, input.sourceWarehouseId, input.sourceLocationId)
+    const product = await validateProduct(tx, organizationId, input.productId)
+    await validateLocationInWarehouse(tx, organizationId, input.sourceWarehouseId, input.sourceLocationId)
     await validateLocationInWarehouse(
       tx,
+      organizationId,
       input.destinationWarehouseId,
       input.destinationLocationId,
     )
@@ -345,12 +359,13 @@ export async function moveStock(
 }
 
 export async function pickStock(
+  organizationId: string,
   input: PickStockInput,
   userId: string,
 ): Promise<StockOperationResult> {
   return prisma.$transaction(async (tx) => {
-    const product = await validateProduct(tx, input.productId)
-    await validateLocationInWarehouse(tx, input.warehouseId, input.locationId)
+    const product = await validateProduct(tx, organizationId, input.productId)
+    await validateLocationInWarehouse(tx, organizationId, input.warehouseId, input.locationId)
 
     const row = await lockInventoryRow(
       tx,
@@ -398,13 +413,14 @@ export async function pickStock(
 }
 
 export async function adjustStock(
+  organizationId: string,
   input: AdjustStockInput,
   userId: string,
   userRole: UserRole,
 ): Promise<StockOperationResult> {
   return prisma.$transaction(async (tx) => {
-    const product = await validateProduct(tx, input.productId)
-    await validateLocationInWarehouse(tx, input.warehouseId, input.locationId)
+    const product = await validateProduct(tx, organizationId, input.productId)
+    await validateLocationInWarehouse(tx, organizationId, input.warehouseId, input.locationId)
 
     const row = await ensureInventoryRow(
       tx,

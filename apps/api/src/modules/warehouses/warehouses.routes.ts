@@ -10,6 +10,7 @@ import { validateBody } from '../../middleware/validate.js'
 import { validateQuery } from '../../middleware/validate-query.js'
 import { authenticate } from '../../middleware/auth.js'
 import { requireRoles } from '../../middleware/rbac.js'
+import { requireOrgId } from '../../lib/org-context.js'
 import {
   createWarehouse,
   getWarehouseById,
@@ -26,7 +27,8 @@ warehousesRouter.get(
   asyncHandler(authenticate),
   validateQuery(warehouseListQuerySchema),
   asyncHandler(async (req, res) => {
-    const result = await listWarehouses(req.query as never)
+    const orgId = requireOrgId(req)
+    const result = await listWarehouses(orgId, req.query as never)
     res.json(result)
   }),
 )
@@ -35,7 +37,8 @@ warehousesRouter.get(
   '/warehouses/:id',
   asyncHandler(authenticate),
   asyncHandler(async (req, res) => {
-    const warehouse = await getWarehouseById(req.params.id)
+    const orgId = requireOrgId(req)
+    const warehouse = await getWarehouseById(orgId, req.params.id)
     res.json({ data: warehouse })
   }),
 )
@@ -46,7 +49,8 @@ warehousesRouter.post(
   requireRoles(...manageRoles),
   validateBody(createWarehouseSchema),
   asyncHandler(async (req, res) => {
-    const warehouse = await createWarehouse(req.body)
+    const orgId = requireOrgId(req)
+    const warehouse = await createWarehouse(orgId, req.body)
     res.status(201).json({ data: warehouse })
   }),
 )
@@ -57,7 +61,8 @@ warehousesRouter.put(
   requireRoles(...manageRoles),
   validateBody(updateWarehouseSchema),
   asyncHandler(async (req, res) => {
-    const warehouse = await updateWarehouse(req.params.id, req.body)
+    const orgId = requireOrgId(req)
+    const warehouse = await updateWarehouse(orgId, req.params.id, req.body)
     res.json({ data: warehouse })
   }),
 )

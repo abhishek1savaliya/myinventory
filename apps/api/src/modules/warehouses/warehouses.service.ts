@@ -22,19 +22,20 @@ function toWarehouseDto(warehouse: Warehouse): WarehouseDto {
   }
 }
 
-export async function listWarehouses(query: WarehouseListQuery) {
+export async function listWarehouses(organizationId: string, query: WarehouseListQuery) {
   return cacheGetOrSet(
     'warehouses',
-    stableCacheSuffix('list', query),
+    stableCacheSuffix('list', { organizationId, ...query }),
     cacheTtl.catalog,
     async () => {
       const where: {
+        organizationId: string
         OR?: Array<{
           code?: { contains: string; mode: 'insensitive' }
           name?: { contains: string; mode: 'insensitive' }
         }>
         status?: WarehouseStatus
-      } = {}
+      } = { organizationId }
 
       if (query.search) {
         where.OR = [
@@ -69,13 +70,13 @@ export async function listWarehouses(query: WarehouseListQuery) {
   )
 }
 
-export async function getWarehouseById(id: string): Promise<WarehouseDto> {
+export async function getWarehouseById(organizationId: string, id: string): Promise<WarehouseDto> {
   return cacheGetOrSet(
     'warehouses',
-    stableCacheSuffix('id', { id }),
+    stableCacheSuffix('id', { organizationId, id }),
     cacheTtl.catalog,
     async () => {
-      const warehouse = await prisma.warehouse.findUnique({ where: { id } })
+      const warehouse = await prisma.warehouse.findFirst({ where: { id, organizationId } })
 
       if (!warehouse) {
         throw new AppError(404, 'Warehouse not found')
@@ -86,10 +87,14 @@ export async function getWarehouseById(id: string): Promise<WarehouseDto> {
   )
 }
 
-export async function createWarehouse(input: CreateWarehouseInput): Promise<WarehouseDto> {
+export async function createWarehouse(
+  organizationId: string,
+  input: CreateWarehouseInput,
+): Promise<WarehouseDto> {
   try {
     const warehouse = await prisma.warehouse.create({
       data: {
+        organizationId,
         code: input.code.trim().toUpperCase(),
         name: input.name.trim(),
         address: input.address?.trim() || null,
@@ -110,10 +115,11 @@ export async function createWarehouse(input: CreateWarehouseInput): Promise<Ware
 }
 
 export async function updateWarehouse(
+  organizationId: string,
   id: string,
   input: UpdateWarehouseInput,
 ): Promise<WarehouseDto> {
-  await getWarehouseById(id)
+  await getWarehouseById(organizationId, id)
 
   try {
     const warehouse = await prisma.warehouse.update({

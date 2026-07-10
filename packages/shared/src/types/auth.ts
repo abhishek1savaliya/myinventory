@@ -1,5 +1,6 @@
 import type { UserRole, UserStatus } from '../types/index.js'
 import type { AppFeature } from './features.js'
+import type { OrganizationSummary } from './organization.js'
 
 export interface AuthUser {
   id: string
@@ -10,6 +11,7 @@ export interface AuthUser {
   createdAt: string
   extraFeatures: AppFeature[]
   features: AppFeature[]
+  organization: OrganizationSummary
 }
 export interface LoginResponse {
   token: string
@@ -21,6 +23,9 @@ export interface JwtPayload {
   email: string
   name: string
   role: UserRole
+  orgId: string
+  orgSlug: string
+  orgCode: string
   iat?: number
   exp?: number
 }

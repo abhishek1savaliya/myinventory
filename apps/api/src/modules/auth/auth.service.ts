@@ -17,20 +17,35 @@ import {
   sessionExpiresAt,
 } from '../../lib/session-storage.js'
 
-import { mapUserToAuthUser } from '../users/user.mapper.js'
+import { mapUserToAuthUser, userWithOrganizationInclude } from '../users/user.mapper.js'
 
 import { UserRole } from '@myinventory/shared'
 
+import { findOrganizationByOrgCode } from '../organizations/organizations.service.js'
+
 export async function loginUser(
+  orgCode: string,
   email: string,
   password: string,
 ): Promise<{ sessionId: string; token: string; user: AuthUser }> {
+  const organization = await findOrganizationByOrgCode(orgCode)
+
+  if (!organization) {
+    throw new AppError(401, 'Invalid organization ID, email, or password')
+  }
+
   const user = await prisma.user.findUnique({
-    where: { email: email.toLowerCase().trim() },
+    where: {
+      organizationId_email: {
+        organizationId: organization.id,
+        email: email.toLowerCase().trim(),
+      },
+    },
+    include: userWithOrganizationInclude,
   })
 
   if (!user) {
-    throw new AppError(401, 'Invalid email or password')
+    throw new AppError(401, 'Invalid organization ID, email, or password')
   }
 
   if (user.status !== 'ACTIVE') {
@@ -40,7 +55,7 @@ export async function loginUser(
   const passwordValid = await bcrypt.compare(password, user.passwordHash)
 
   if (!passwordValid) {
-    throw new AppError(401, 'Invalid email or password')
+    throw new AppError(401, 'Invalid organization ID, email, or password')
   }
 
   const token = signAccessToken({
@@ -48,6 +63,9 @@ export async function loginUser(
     email: user.email,
     name: user.name,
     role: user.role as UserRole,
+    orgId: organization.id,
+    orgSlug: organization.slug,
+    orgCode: organization.orgCode,
   })
 
   const sessionId = createSessionId()
@@ -66,40 +84,25 @@ export async function loginUser(
   }
 }
 
-
-
 export async function getUserById(id: string): Promise<AuthUser> {
-
-  const user = await prisma.user.findUnique({ where: { id } })
-
-
-
-  if (!user) {
-
-    throw new AppError(404, 'User not found')
-
-  }
-
-
-
-  return mapUserToAuthUser(user)
-
-}
-
-
-
-export async function listUsers(): Promise<AuthUser[]> {
-
-  const users = await prisma.user.findMany({
-
-    orderBy: { createdAt: 'desc' },
-
+  const user = await prisma.user.findUnique({
+    where: { id },
+    include: userWithOrganizationInclude,
   })
 
+  if (!user) {
+    throw new AppError(404, 'User not found')
+  }
 
-
-  return users.map(mapUserToAuthUser)
-
+  return mapUserToAuthUser(user)
 }
 
+export async function listUsers(organizationId: string): Promise<AuthUser[]> {
+  const users = await prisma.user.findMany({
+    where: { organizationId },
+    include: userWithOrganizationInclude,
+    orderBy: { createdAt: 'desc' },
+  })
 
+  return users.map(mapUserToAuthUser)
+}

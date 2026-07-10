@@ -15,6 +15,7 @@ import { validateQuery } from '../../middleware/validate-query.js'
 import { authenticate, type AuthenticatedRequest } from '../../middleware/auth.js'
 import { requireRoles } from '../../middleware/rbac.js'
 import { requireFeatures } from '../../middleware/feature-access.js'
+import { requireOrgId } from '../../lib/org-context.js'
 import {
   adjustStock,
   getInventoryByProduct,
@@ -34,7 +35,8 @@ inventoryRouter.get(
   asyncHandler(authenticate),
   validateQuery(inventoryListQuerySchema),
   asyncHandler(async (req, res) => {
-    const result = await listInventory(req.query as never)
+    const orgId = requireOrgId(req)
+    const result = await listInventory(orgId, req.query as never)
     res.json(result)
   }),
 )
@@ -43,7 +45,8 @@ inventoryRouter.get(
   '/inventory/product/:productId',
   asyncHandler(authenticate),
   asyncHandler(async (req, res) => {
-    const data = await getInventoryByProduct(req.params.productId)
+    const orgId = requireOrgId(req)
+    const data = await getInventoryByProduct(orgId, req.params.productId)
     res.json({ data })
   }),
 )
@@ -55,7 +58,8 @@ inventoryRouter.post(
   validateBody(receiveStockSchema),
   asyncHandler(async (req, res) => {
     const { user } = req as AuthenticatedRequest
-    const result = await receiveStock(req.body, user.sub)
+    const orgId = requireOrgId(req)
+    const result = await receiveStock(orgId, req.body, user.sub)
     res.status(201).json({ data: result })
   }),
 )
@@ -67,7 +71,8 @@ inventoryRouter.post(
   validateBody(moveStockSchema),
   asyncHandler(async (req, res) => {
     const { user } = req as AuthenticatedRequest
-    const result = await moveStock(req.body, user.sub)
+    const orgId = requireOrgId(req)
+    const result = await moveStock(orgId, req.body, user.sub)
     res.status(201).json({ data: result })
   }),
 )
@@ -79,7 +84,8 @@ inventoryRouter.post(
   validateBody(pickStockSchema),
   asyncHandler(async (req, res) => {
     const { user } = req as AuthenticatedRequest
-    const result = await pickStock(req.body, user.sub)
+    const orgId = requireOrgId(req)
+    const result = await pickStock(orgId, req.body, user.sub)
     res.status(201).json({ data: result })
   }),
 )
@@ -90,7 +96,8 @@ inventoryRouter.post(
   validateBody(returnStockSchema),
   asyncHandler(async (req, res) => {
     const { user } = req as AuthenticatedRequest
-    const result = await returnStock(req.body, user.sub)
+    const orgId = requireOrgId(req)
+    const result = await returnStock(orgId, req.body, user.sub)
     res.status(201).json({ data: result })
   }),
 )
@@ -102,7 +109,8 @@ inventoryRouter.post(
   validateBody(adjustStockSchema),
   asyncHandler(async (req, res) => {
     const { user } = req as AuthenticatedRequest
-    const result = await adjustStock(req.body, user.sub, user.role)
+    const orgId = requireOrgId(req)
+    const result = await adjustStock(orgId, req.body, user.sub, user.role)
     res.status(201).json({ data: result })
   }),
 )

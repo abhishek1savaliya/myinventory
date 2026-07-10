@@ -45,8 +45,10 @@ const transactionInclude = {
   destinationLocation: { select: { code: true } },
 } as const
 
-export async function listTransactions(query: TransactionListQuery) {
-  const where: Prisma.InventoryTransactionWhereInput = {}
+export async function listTransactions(organizationId: string, query: TransactionListQuery) {
+  const where: Prisma.InventoryTransactionWhereInput = {
+    user: { organizationId },
+  }
 
   if (query.transactionId) where.id = query.transactionId
   if (query.sku) where.sku = { contains: query.sku, mode: 'insensitive' }
@@ -109,9 +111,12 @@ export async function listTransactions(query: TransactionListQuery) {
   }
 }
 
-export async function getTransactionById(id: string): Promise<InventoryTransactionDto> {
-  const record = await prisma.inventoryTransaction.findUnique({
-    where: { id },
+export async function getTransactionById(
+  organizationId: string,
+  id: string,
+): Promise<InventoryTransactionDto> {
+  const record = await prisma.inventoryTransaction.findFirst({
+    where: { id, user: { organizationId } },
     include: transactionInclude,
   })
 

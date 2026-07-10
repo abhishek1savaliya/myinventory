@@ -15,11 +15,11 @@ import { authenticate } from '../../middleware/auth.js'
 import { requireRoles } from '../../middleware/rbac.js'
 import { requireFeatures } from '../../middleware/feature-access.js'
 import { requireRolesOrFeatures } from '../../middleware/require-roles-or-features.js'
+import { requireOrgId } from '../../lib/org-context.js'
 import {
   createProduct,
   createProductFromScan,
   disableProduct,
-  getProductByBarcode,
   getProductById,
   listProducts,
   lookupProductByBarcodeForScan,
@@ -36,7 +36,8 @@ productsRouter.get(
   asyncHandler(authenticate),
   validateQuery(productListQuerySchema),
   asyncHandler(async (req, res) => {
-    const result = await listProducts(req.query as never)
+    const orgId = requireOrgId(req)
+    const result = await listProducts(orgId, req.query as never)
     res.json(result)
   }),
 )
@@ -46,7 +47,8 @@ productsRouter.get(
   asyncHandler(authenticate),
   requireFeatures(AppFeature.SCAN),
   asyncHandler(async (req, res) => {
-    const product = await lookupProductByBarcodeForScan(req.params.barcode)
+    const orgId = requireOrgId(req)
+    const product = await lookupProductByBarcodeForScan(orgId, req.params.barcode)
     res.json({ data: product })
   }),
 )
@@ -55,7 +57,8 @@ productsRouter.get(
   '/products/:id',
   asyncHandler(authenticate),
   asyncHandler(async (req, res) => {
-    const product = await getProductById(req.params.id)
+    const orgId = requireOrgId(req)
+    const product = await getProductById(orgId, req.params.id)
     res.json({ data: product })
   }),
 )
@@ -66,7 +69,8 @@ productsRouter.post(
   requireFeatures(AppFeature.SCAN),
   validateBody(createProductFromScanSchema),
   asyncHandler(async (req, res) => {
-    const product = await createProductFromScan(req.body)
+    const orgId = requireOrgId(req)
+    const product = await createProductFromScan(orgId, req.body)
     res.status(201).json({ data: product })
   }),
 )
@@ -77,7 +81,8 @@ productsRouter.post(
   requireRoles(...manageRoles),
   validateBody(createProductSchema),
   asyncHandler(async (req, res) => {
-    const product = await createProduct(req.body)
+    const orgId = requireOrgId(req)
+    const product = await createProduct(orgId, req.body)
     res.status(201).json({ data: product })
   }),
 )
@@ -88,7 +93,8 @@ productsRouter.put(
   requireFeatures(AppFeature.SCAN, AppFeature.PRODUCTS),
   validateBody(updateProductFromScanSchema),
   asyncHandler(async (req, res) => {
-    const product = await updateProductFromScan(req.params.id, req.body)
+    const orgId = requireOrgId(req)
+    const product = await updateProductFromScan(orgId, req.params.id, req.body)
     res.json({ data: product })
   }),
 )
@@ -99,7 +105,8 @@ productsRouter.put(
   requireRoles(...manageRoles),
   validateBody(updateProductSchema),
   asyncHandler(async (req, res) => {
-    const product = await updateProduct(req.params.id, req.body)
+    const orgId = requireOrgId(req)
+    const product = await updateProduct(orgId, req.params.id, req.body)
     res.json({ data: product })
   }),
 )
@@ -109,7 +116,8 @@ productsRouter.patch(
   asyncHandler(authenticate),
   requireRolesOrFeatures(manageRoles, AppFeature.PRODUCT_DELETE),
   asyncHandler(async (req, res) => {
-    const product = await disableProduct(req.params.id)
+    const orgId = requireOrgId(req)
+    const product = await disableProduct(orgId, req.params.id)
     res.json({ data: product })
   }),
 )

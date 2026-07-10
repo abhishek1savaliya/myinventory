@@ -10,7 +10,7 @@ import { UserRole, UserStatus, computeExtraFeatures } from '@myinventory/shared'
 import bcrypt from 'bcryptjs'
 import { prisma } from '@myinventory/prisma'
 import { AppError } from '../../middleware/error-handler.js'
-import { mapUserToAuthUser, toPrismaFeatures } from './user.mapper.js'
+import { mapUserToAuthUser, toPrismaFeatures, userWithOrganizationInclude } from './user.mapper.js'
 
 type DisableRequestWithUsers = UserDisableRequest & {
   targetUser: User
@@ -32,9 +32,22 @@ function toDisableRequestDto(request: DisableRequestWithUsers): UserDisableReque
   }
 }
 
-async function countActiveAdmins(excludeUserId?: string): Promise<number> {
+async function getUserInOrganization(userId: string, organizationId: string) {
+  const user = await prisma.user.findFirst({
+    where: { id: userId, organizationId },
+  })
+
+  if (!user) {
+    throw new AppError(404, 'User not found')
+  }
+
+  return user
+}
+
+async function countActiveAdmins(organizationId: string, excludeUserId?: string): Promise<number> {
   return prisma.user.count({
     where: {
+      organizationId,
       role: UserRole.ADMIN,
       status: UserStatus.ACTIVE,
       ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
@@ -42,27 +55,50 @@ async function countActiveAdmins(excludeUserId?: string): Promise<number> {
   })
 }
 
-async function ensureMinimumOneAdminAfterDisable(targetUserId: string): Promise<void> {
-  const target = await prisma.user.findUnique({ where: { id: targetUserId } })
+async function ensureMinimumOneAdminAfterDisable(
+  organizationId: string,
+  targetUserId: string,
+): Promise<void> {
+  const target = await getUserInOrganization(targetUserId, organizationId)
 
-  if (!target || target.role !== UserRole.ADMIN) {
+  if (target.role !== UserRole.ADMIN) {
     return
   }
 
-  const remaining = await countActiveAdmins(targetUserId)
+  const remaining = await countActiveAdmins(organizationId, targetUserId)
 
   if (remaining < 1) {
-    throw new AppError(400, 'At least one active admin must remain in the system')
+    throw new AppError(400, 'At least one active admin must remain in the organization')
   }
 }
 
-export async function createUser(input: CreateUserInput): Promise<AuthUser> {
+async function reloadAuthUser(userId: string): Promise<AuthUser> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: userWithOrganizationInclude,
+  })
+
+  if (!user) {
+    throw new AppError(404, 'User not found')
+  }
+
+  return mapUserToAuthUser(user)
+}
+
+export async function createUser(organizationId: string, input: CreateUserInput): Promise<AuthUser> {
   const email = input.email.toLowerCase().trim()
 
-  const existing = await prisma.user.findUnique({ where: { email } })
+  const existing = await prisma.user.findUnique({
+    where: {
+      organizationId_email: {
+        organizationId,
+        email,
+      },
+    },
+  })
 
   if (existing) {
-    throw new AppError(409, 'A user with this email already exists')
+    throw new AppError(409, 'A user with this email already exists in this organization')
   }
 
   const passwordHash = await bcrypt.hash(input.password, 12)
@@ -70,11 +106,13 @@ export async function createUser(input: CreateUserInput): Promise<AuthUser> {
   try {
     const user = await prisma.user.create({
       data: {
+        organizationId,
         name: input.name.trim(),
         email,
         passwordHash,
         role: input.role,
       },
+      include: userWithOrganizationInclude,
     })
 
     return mapUserToAuthUser(user)
@@ -85,13 +123,14 @@ export async function createUser(input: CreateUserInput): Promise<AuthUser> {
       'code' in error &&
       (error as { code: string }).code === 'P2002'
     ) {
-      throw new AppError(409, 'A user with this email already exists')
+      throw new AppError(409, 'A user with this email already exists in this organization')
     }
     throw error
   }
 }
 
 export async function requestDisableUser(
+  organizationId: string,
   targetUserId: string,
   requestedById: string,
 ): Promise<DisableUserResponse> {
@@ -100,23 +139,19 @@ export async function requestDisableUser(
   }
 
   const [target, requester] = await Promise.all([
-    prisma.user.findUnique({ where: { id: targetUserId } }),
-    prisma.user.findUnique({ where: { id: requestedById } }),
+    getUserInOrganization(targetUserId, organizationId),
+    getUserInOrganization(requestedById, organizationId),
   ])
-
-  if (!target) {
-    throw new AppError(404, 'User not found')
-  }
 
   if (target.status !== UserStatus.ACTIVE) {
     throw new AppError(400, 'User is already inactive')
   }
 
-  if (!requester || requester.role !== UserRole.ADMIN) {
+  if (requester.role !== UserRole.ADMIN) {
     throw new AppError(403, 'Only admins can disable users')
   }
 
-  await ensureMinimumOneAdminAfterDisable(targetUserId)
+  await ensureMinimumOneAdminAfterDisable(organizationId, targetUserId)
 
   if (target.role === UserRole.ADMIN) {
     const existingPending = await prisma.userDisableRequest.findFirst({
@@ -163,8 +198,11 @@ export async function requestDisableUser(
 }
 
 export async function listIncomingDisableRequests(
+  organizationId: string,
   userId: string,
 ): Promise<UserDisableRequestDto[]> {
+  await getUserInOrganization(userId, organizationId)
+
   const requests = await prisma.userDisableRequest.findMany({
     where: {
       targetUserId: userId,
@@ -181,15 +219,22 @@ export async function listIncomingDisableRequests(
 }
 
 export async function acceptDisableRequest(
+  organizationId: string,
   requestId: string,
   acceptingUserId: string,
 ): Promise<DisableUserResponse> {
+  await getUserInOrganization(acceptingUserId, organizationId)
+
   const request = await prisma.userDisableRequest.findUnique({
     where: { id: requestId },
     include: { targetUser: true, requestedBy: true },
   })
 
   if (!request) {
+    throw new AppError(404, 'Disable request not found')
+  }
+
+  if (request.targetUser.organizationId !== organizationId) {
     throw new AppError(404, 'Disable request not found')
   }
 
@@ -201,7 +246,7 @@ export async function acceptDisableRequest(
     throw new AppError(403, 'Only the target user can accept this disable request')
   }
 
-  await ensureMinimumOneAdminAfterDisable(request.targetUserId)
+  await ensureMinimumOneAdminAfterDisable(organizationId, request.targetUserId)
 
   await prisma.$transaction([
     prisma.user.update({
@@ -229,14 +274,18 @@ export async function acceptDisableRequest(
 }
 
 export async function rejectDisableRequest(
+  organizationId: string,
   requestId: string,
   rejectingUserId: string,
 ): Promise<{ message: string }> {
+  await getUserInOrganization(rejectingUserId, organizationId)
+
   const request = await prisma.userDisableRequest.findUnique({
     where: { id: requestId },
+    include: { targetUser: true },
   })
 
-  if (!request) {
+  if (!request || request.targetUser.organizationId !== organizationId) {
     throw new AppError(404, 'Disable request not found')
   }
 
@@ -256,43 +305,35 @@ export async function rejectDisableRequest(
   return { message: 'Disable request rejected' }
 }
 
-export async function activateUser(targetUserId: string): Promise<AuthUser> {
-  const target = await prisma.user.findUnique({ where: { id: targetUserId } })
-
-  if (!target) {
-    throw new AppError(404, 'User not found')
-  }
+export async function activateUser(organizationId: string, targetUserId: string): Promise<AuthUser> {
+  const target = await getUserInOrganization(targetUserId, organizationId)
 
   if (target.status === UserStatus.ACTIVE) {
     throw new AppError(400, 'User is already active')
   }
 
-  const user = await prisma.user.update({
+  await prisma.user.update({
     where: { id: targetUserId },
     data: { status: UserStatus.ACTIVE },
   })
 
-  return mapUserToAuthUser(user)
+  return reloadAuthUser(targetUserId)
 }
 
 export async function updateUserFeatures(
+  organizationId: string,
   targetUserId: string,
   input: UpdateUserFeaturesInput,
 ): Promise<AuthUser> {
-  const target = await prisma.user.findUnique({ where: { id: targetUserId } })
-
-  if (!target) {
-    throw new AppError(404, 'User not found')
-  }
-
+  const target = await getUserInOrganization(targetUserId, organizationId)
   const extraFeatures = computeExtraFeatures(target.role as UserRole, input.features)
 
-  const user = await prisma.user.update({
+  await prisma.user.update({
     where: { id: targetUserId },
     data: {
       extraFeatures: toPrismaFeatures(extraFeatures),
     },
   })
 
-  return mapUserToAuthUser(user)
+  return reloadAuthUser(targetUserId)
 }

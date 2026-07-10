@@ -12,8 +12,12 @@ authRouter.post(
   '/auth/login',
   validateBody(loginSchema),
   asyncHandler(async (req, res) => {
-    const { email, password } = req.body as { email: string; password: string }
-    const result = await loginUser(email, password)
+    const { orgId, email, password } = req.body as {
+      orgId: string
+      email: string
+      password: string
+    }
+    const result = await loginUser(orgId, email, password)
     res.json({
       sessionId: result.sessionId,
       user: result.user,

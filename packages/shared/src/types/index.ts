@@ -63,4 +63,15 @@ export type {
   MoveStockResult,
 } from './inventory.js'
 export type { UserDisableRequestDto } from './users.js'
+export type {
+  OrganizationSummary,
+  OrganizationSignupResponse,
+  OrganizationPublicProfile,
+} from './organization.js'
 export { AppFeature, ALL_APP_FEATURES, FEATURE_LABELS, ROLE_DEFAULT_FEATURES, getEffectiveFeatures, computeExtraFeatures } from './features.js'
+export {
+  slugifyOrganizationName,
+  orgCodePrefixFromName,
+  randomOrgCodeSuffix,
+  buildOrgCode,
+} from '../utils/organization.js'

@@ -12,11 +12,15 @@ export interface AuthenticatedRequest extends Request {
 async function resolveUserFromPayload(payload: JwtPayload): Promise<JwtPayload> {
   const user = await prisma.user.findUnique({
     where: { id: payload.sub },
-    select: { id: true, status: true },
+    select: { id: true, status: true, organizationId: true },
   })
 
   if (!user || user.status !== 'ACTIVE') {
     throw new AppError(401, 'User account is inactive or does not exist')
+  }
+
+  if (payload.orgId && user.organizationId !== payload.orgId) {
+    throw new AppError(401, 'Organization context is invalid')
   }
 
   return payload

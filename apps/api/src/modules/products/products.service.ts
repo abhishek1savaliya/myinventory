@@ -43,9 +43,9 @@ function toProductDto(product: Product, images: ProductImage[] = []): ProductDto
   }
 }
 
-async function fetchProductWithImages(id: string): Promise<ProductWithImages> {
-  const product = await prisma.product.findUnique({
-    where: { id },
+async function fetchProductWithImages(organizationId: string, id: string): Promise<ProductWithImages> {
+  const product = await prisma.product.findFirst({
+    where: { id, organizationId },
     include: { images: { orderBy: { sortOrder: 'asc' } } },
   })
 
@@ -157,8 +157,9 @@ function collectImagesBase64(input: {
   return images.slice(0, MAX_PRODUCT_IMAGES)
 }
 
-function buildProductWhere(query: ProductListQuery) {
+function buildProductWhere(organizationId: string, query: ProductListQuery) {
   const where: {
+    organizationId: string
     OR?: Array<{
       sku?: { contains: string; mode: 'insensitive' }
       barcode?: { contains: string; mode: 'insensitive' }
@@ -167,7 +168,7 @@ function buildProductWhere(query: ProductListQuery) {
     sku?: { contains: string; mode: 'insensitive' }
     barcode?: { contains: string; mode: 'insensitive' }
     status?: ProductStatus
-  } = {}
+  } = { organizationId }
 
   if (query.search) {
     where.OR = [
@@ -192,13 +193,13 @@ function buildProductWhere(query: ProductListQuery) {
   return where
 }
 
-export async function listProducts(query: ProductListQuery) {
+export async function listProducts(organizationId: string, query: ProductListQuery) {
   return cacheGetOrSet(
     'products',
-    stableCacheSuffix('list', query),
+    stableCacheSuffix('list', { organizationId, ...query }),
     cacheTtl.catalog,
     async () => {
-      const where = buildProductWhere(query)
+      const where = buildProductWhere(organizationId, query)
       const skip = (query.page - 1) * query.pageSize
 
       const [products, total] = await Promise.all([
@@ -221,23 +222,36 @@ export async function listProducts(query: ProductListQuery) {
   )
 }
 
-export async function getProductById(id: string): Promise<ProductDto> {
-  return cacheGetOrSet('products', stableCacheSuffix('id', { id }), cacheTtl.catalog, async () => {
-    const product = await fetchProductWithImages(id)
-    return toProductDto(product, product.images)
-  })
+export async function getProductById(organizationId: string, id: string): Promise<ProductDto> {
+  return cacheGetOrSet(
+    'products',
+    stableCacheSuffix('id', { organizationId, id }),
+    cacheTtl.catalog,
+    async () => {
+      const product = await fetchProductWithImages(organizationId, id)
+      return toProductDto(product, product.images)
+    },
+  )
 }
 
-export async function getProductByBarcode(barcode: string): Promise<ProductDto> {
+export async function getProductByBarcode(
+  organizationId: string,
+  barcode: string,
+): Promise<ProductDto> {
   const normalizedBarcode = barcode.trim()
 
   return cacheGetOrSet(
     'products',
-    stableCacheSuffix('barcode', { barcode: normalizedBarcode }),
+    stableCacheSuffix('barcode', { organizationId, barcode: normalizedBarcode }),
     cacheTtl.catalog,
     async () => {
       const product = await prisma.product.findUnique({
-        where: { barcode: normalizedBarcode },
+        where: {
+          organizationId_barcode: {
+            organizationId,
+            barcode: normalizedBarcode,
+          },
+        },
         include: { images: { orderBy: { sortOrder: 'asc' } } },
       })
 
@@ -251,11 +265,19 @@ export async function getProductByBarcode(barcode: string): Promise<ProductDto> 
 }
 
 /** Fast path for scan — skips Redis to reduce lookup latency. */
-export async function lookupProductByBarcodeForScan(barcode: string): Promise<ProductDto> {
+export async function lookupProductByBarcodeForScan(
+  organizationId: string,
+  barcode: string,
+): Promise<ProductDto> {
   const normalizedBarcode = barcode.trim()
 
   const product = await prisma.product.findUnique({
-    where: { barcode: normalizedBarcode },
+    where: {
+      organizationId_barcode: {
+        organizationId,
+        barcode: normalizedBarcode,
+      },
+    },
     include: { images: { orderBy: { sortOrder: 'asc' } } },
   })
 
@@ -266,12 +288,16 @@ export async function lookupProductByBarcodeForScan(barcode: string): Promise<Pr
   return toProductDto(product, product.images)
 }
 
-export async function createProduct(input: CreateProductInput): Promise<ProductDto> {
+export async function createProduct(
+  organizationId: string,
+  input: CreateProductInput,
+): Promise<ProductDto> {
   try {
     const imageUrl = input.imageUrl?.trim() || null
 
     const product = await prisma.product.create({
       data: {
+        organizationId,
         sku: input.sku.trim(),
         barcode: input.barcode.trim(),
         name: input.name.trim(),
@@ -295,7 +321,7 @@ export async function createProduct(input: CreateProductInput): Promise<ProductD
     await invalidateCache('products')
     await invalidateCache('inventory')
 
-    return getProductById(product.id)
+    return getProductById(organizationId, product.id)
   } catch (error) {
     if (isUniqueConstraintError(error)) {
       throw new AppError(409, 'SKU or barcode already exists')
@@ -304,21 +330,25 @@ export async function createProduct(input: CreateProductInput): Promise<ProductD
   }
 }
 
-export async function createProductFromScan(input: CreateProductFromScanInput): Promise<ProductDto> {
+export async function createProductFromScan(
+  organizationId: string,
+  input: CreateProductFromScanInput,
+): Promise<ProductDto> {
   const { imageBase64, imagesBase64, ...productInput } = input
   const imagesToUpload = collectImagesBase64({ imageBase64, imagesBase64 })
 
-  const product = await createProduct(productInput)
+  const product = await createProduct(organizationId, productInput)
 
   if (imagesToUpload.length > 0) {
     await addImagesToProduct(product.id, imagesToUpload)
     await invalidateCache('products')
   }
 
-  return getProductById(product.id)
+  return getProductById(organizationId, product.id)
 }
 
 export async function updateProductFromScan(
+  organizationId: string,
   id: string,
   input: UpdateProductFromScanInput,
 ): Promise<ProductDto> {
@@ -333,18 +363,22 @@ export async function updateProductFromScan(
     await addImagesToProduct(id, imagesToUpload)
   }
 
-  const updated = await updateProduct(id, productInput)
+  const updated = await updateProduct(organizationId, id, productInput)
 
   if (removeImageIds?.length || imagesToUpload.length > 0) {
     await invalidateCache('products')
-    return getProductById(id)
+    return getProductById(organizationId, id)
   }
 
   return updated
 }
 
-export async function updateProduct(id: string, input: UpdateProductInput): Promise<ProductDto> {
-  await getProductById(id)
+export async function updateProduct(
+  organizationId: string,
+  id: string,
+  input: UpdateProductInput,
+): Promise<ProductDto> {
+  await getProductById(organizationId, id)
 
   try {
     const product = await prisma.product.update({
@@ -385,7 +419,7 @@ export async function updateProduct(id: string, input: UpdateProductInput): Prom
     await invalidateCache('products')
     await invalidateCache('inventory')
 
-    return getProductById(product.id)
+    return getProductById(organizationId, product.id)
   } catch (error) {
     if (isUniqueConstraintError(error)) {
       throw new AppError(409, 'SKU or barcode already exists')
@@ -394,8 +428,8 @@ export async function updateProduct(id: string, input: UpdateProductInput): Prom
   }
 }
 
-export async function disableProduct(id: string): Promise<ProductDto> {
-  await getProductById(id)
+export async function disableProduct(organizationId: string, id: string): Promise<ProductDto> {
+  await getProductById(organizationId, id)
 
   const product = await prisma.product.update({
     where: { id },
