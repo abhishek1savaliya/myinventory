@@ -8,9 +8,11 @@ import { orgWelcomePath } from '@/lib/org-paths'
 import { API_BASE_URL } from '@/lib/api-client'
 import {
   getStoredScanSoundEnabled,
+  getStoredScanSoundVolume,
   initScanAudio,
   playScanBeep,
   setStoredScanSoundEnabled,
+  setStoredScanSoundVolume,
 } from '@/lib/scan-sound'
 import { getStoredTorchPreference, setStoredTorchPreference } from '@/lib/scan-torch'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -47,12 +49,14 @@ export function SettingsPage() {
   const { user } = useAuth()
   const [torchOn, setTorchOn] = useState(false)
   const [scanSoundOn, setScanSoundOn] = useState(true)
+  const [scanSoundVolume, setScanSoundVolume] = useState(100)
   const isOwner = isOrganizationOwner(user)
   const org = user?.organization
 
   useEffect(() => {
     setTorchOn(getStoredTorchPreference())
     setScanSoundOn(getStoredScanSoundEnabled())
+    setScanSoundVolume(getStoredScanSoundVolume())
   }, [])
 
   function handleTorchChange(enabled) {
@@ -64,6 +68,16 @@ export function SettingsPage() {
     setScanSoundOn(enabled)
     setStoredScanSoundEnabled(enabled)
     if (enabled) {
+      initScanAudio()
+      playScanBeep('scanned')
+    }
+  }
+
+  function handleScanSoundVolumeChange(volume) {
+    const nextVolume = Number(volume)
+    setScanSoundVolume(nextVolume)
+    setStoredScanSoundVolume(nextVolume)
+    if (scanSoundOn) {
       initScanAudio()
       playScanBeep('scanned')
     }
@@ -158,6 +172,38 @@ export function SettingsPage() {
             checked={scanSoundOn}
             onChange={handleScanSoundChange}
           />
+          {scanSoundOn && (
+            <div className="rounded-md border border-[var(--color-border)] bg-white px-4 py-3">
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <Label htmlFor="setting-scan-sound-volume" className="text-sm font-medium text-gray-900">
+                    Beep volume
+                  </Label>
+                  <p className="text-xs text-[var(--color-muted)]">
+                    100% is default. Increase up to 200% for a louder scan beep on this device.
+                  </p>
+                </div>
+                <span className="shrink-0 text-sm font-medium tabular-nums text-[var(--color-primary)]">
+                  {scanSoundVolume}%
+                </span>
+              </div>
+              <input
+                id="setting-scan-sound-volume"
+                type="range"
+                min={50}
+                max={200}
+                step={5}
+                value={scanSoundVolume}
+                onChange={(event) => handleScanSoundVolumeChange(event.target.value)}
+                className="mt-3 h-2 w-full cursor-pointer accent-[var(--color-primary)]"
+              />
+              <div className="mt-1 flex justify-between text-[10px] text-[var(--color-muted)]">
+                <span>50%</span>
+                <span>100%</span>
+                <span>200%</span>
+              </div>
+            </div>
+          )}
           <SettingToggle
             id="setting-scan-torch"
             label="Flashlight on by default"

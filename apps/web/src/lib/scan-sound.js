@@ -1,6 +1,11 @@
 let audioContext = null
 
 export const SCAN_SOUND_KEY = 'myinventory_scan_sound'
+export const SCAN_SOUND_VOLUME_KEY = 'myinventory_scan_sound_volume'
+
+const DEFAULT_SCAN_SOUND_VOLUME = 100
+const MIN_SCAN_SOUND_VOLUME = 50
+const MAX_SCAN_SOUND_VOLUME = 200
 
 export function getStoredScanSoundEnabled() {
   if (typeof window === 'undefined') return true
@@ -10,6 +15,32 @@ export function getStoredScanSoundEnabled() {
 export function setStoredScanSoundEnabled(enabled) {
   if (typeof window === 'undefined') return
   localStorage.setItem(SCAN_SOUND_KEY, enabled ? '1' : '0')
+}
+
+export function getStoredScanSoundVolume() {
+  if (typeof window === 'undefined') return DEFAULT_SCAN_SOUND_VOLUME
+
+  const raw = localStorage.getItem(SCAN_SOUND_VOLUME_KEY)
+  if (!raw) return DEFAULT_SCAN_SOUND_VOLUME
+
+  const parsed = Number.parseInt(raw, 10)
+  if (Number.isNaN(parsed)) return DEFAULT_SCAN_SOUND_VOLUME
+
+  return Math.min(MAX_SCAN_SOUND_VOLUME, Math.max(MIN_SCAN_SOUND_VOLUME, parsed))
+}
+
+export function setStoredScanSoundVolume(volume) {
+  if (typeof window === 'undefined') return
+
+  const clamped = Math.min(
+    MAX_SCAN_SOUND_VOLUME,
+    Math.max(MIN_SCAN_SOUND_VOLUME, Math.round(volume)),
+  )
+  localStorage.setItem(SCAN_SOUND_VOLUME_KEY, String(clamped))
+}
+
+export function getScanVolumeMultiplier() {
+  return getStoredScanSoundVolume() / 100
 }
 
 function getAudioContext() {
@@ -30,6 +61,9 @@ function getAudioContext() {
 }
 
 function playTone(ctx, frequency, { startOffset = 0, duration = 0.14, peakGain = 0.9, type = 'square' } = {}) {
+  const volumeMultiplier = getScanVolumeMultiplier()
+  const scaledGain = Math.min(peakGain * volumeMultiplier, 2)
+
   const oscillator = ctx.createOscillator()
   const gain = ctx.createGain()
   oscillator.connect(gain)
@@ -38,7 +72,7 @@ function playTone(ctx, frequency, { startOffset = 0, duration = 0.14, peakGain =
   oscillator.type = type
 
   const start = ctx.currentTime + startOffset
-  gain.gain.setValueAtTime(peakGain, start)
+  gain.gain.setValueAtTime(scaledGain, start)
   gain.gain.exponentialRampToValueAtTime(0.001, start + duration)
   oscillator.start(start)
   oscillator.stop(start + duration + 0.02)
