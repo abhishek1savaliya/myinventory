@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Camera, Flashlight, ImagePlus, RotateCcw, ScanLine, Trash2, X } from 'lucide-react'
 import { AppFeature, MAX_PRODUCT_IMAGES, UserRole } from '@myinventory/shared'
-import { apiFetch, ApiRequestError, API_BASE_URL } from '@/lib/api-client'
+import { apiFetch, apiFetchJsonWithProgress, ApiRequestError, API_BASE_URL } from '@/lib/api-client'
 import { useAuth } from '@/contexts/use-auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -102,6 +102,7 @@ export function ScanPage() {
   const [removedImageIds, setRemovedImageIds] = useState([])
   const [formError, setFormError] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [saveProgress, setSaveProgress] = useState(null)
   const [isCompressingImage, setIsCompressingImage] = useState(false)
   const [torchOn, setTorchOn] = useState(() =>
     typeof window !== 'undefined' ? getStoredTorchPreference() : false,
@@ -477,34 +478,44 @@ export function ScanPage() {
     }
   }
 
-  async function buildImagesPayload() {
+  const COMPRESS_PROGRESS_MAX = 35
+  const UPLOAD_PROGRESS_MAX = 92
+
+  async function buildImagesPayload(onProgress) {
     if (pendingImages.length === 0) {
       return undefined
     }
 
     const compressedImages = []
-    for (const image of pendingImages) {
-      compressedImages.push(await compressImageDataUrl(image))
+    const total = pendingImages.length
+
+    for (let index = 0; index < pendingImages.length; index += 1) {
+      compressedImages.push(await compressImageDataUrl(pendingImages[index]))
+      onProgress?.(Math.round(((index + 1) / total) * COMPRESS_PROGRESS_MAX))
     }
 
     return compressedImages
   }
 
-  async function handleUpdateProduct() {
-    if (!product) return
+  async function saveProductFromScan({ path, method, includeRemovedImages = false }) {
+    const hasNewImages = pendingImages.length > 0
 
     setFormError(null)
     setIsSaving(true)
+    setSaveProgress(hasNewImages ? 0 : null)
 
     const barcode = form.barcode.trim()
     const name = form.name.trim() || `Product ${barcode}`
 
     let imagesBase64
     try {
-      imagesBase64 = await buildImagesPayload()
+      imagesBase64 = await buildImagesPayload(
+        hasNewImages ? (percent) => setSaveProgress(percent) : undefined,
+      )
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Could not compress image')
       setIsSaving(false)
+      setSaveProgress(null)
       return
     }
 
@@ -516,14 +527,30 @@ export function ScanPage() {
       category: form.category.trim() || undefined,
       minimumStockLevel: Number(form.minimumStockLevel) || 0,
       ...(imagesBase64?.length ? { imagesBase64 } : {}),
-      ...(removedImageIds.length ? { removeImageIds: removedImageIds } : {}),
+      ...(includeRemovedImages && removedImageIds.length ? { removeImageIds: removedImageIds } : {}),
     }
 
+    const body = JSON.stringify(payload)
+
     try {
-      const response = await apiFetch(`/api/products/${product.id}/from-scan`, {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      })
+      const response = hasNewImages
+        ? await apiFetchJsonWithProgress(
+            path,
+            { method, body },
+            (loaded, total) => {
+              if (total <= 0) return
+              const uploadPercent =
+                COMPRESS_PROGRESS_MAX +
+                Math.round((loaded / total) * (UPLOAD_PROGRESS_MAX - COMPRESS_PROGRESS_MAX))
+              setSaveProgress(Math.min(uploadPercent, UPLOAD_PROGRESS_MAX))
+            },
+          )
+        : await apiFetch(path, { method, body })
+
+      if (hasNewImages) {
+        setSaveProgress(95)
+      }
+
       setProduct(response.data)
       setForm(productToForm(response.data))
       setPendingImages([])
@@ -532,11 +559,26 @@ export function ScanPage() {
       setCachedBarcodeLookup(barcode, { type: 'found', product: response.data })
       setScanState('found')
       playScanBeep('created')
+
+      if (hasNewImages) {
+        setSaveProgress(100)
+      }
     } catch (err) {
       setFormError(formatApiError(err))
     } finally {
       setIsSaving(false)
+      setSaveProgress(null)
     }
+  }
+
+  async function handleUpdateProduct() {
+    if (!product) return
+
+    await saveProductFromScan({
+      path: `/api/products/${product.id}/from-scan`,
+      method: 'PUT',
+      includeRemovedImages: true,
+    })
   }
 
   async function handleDisableProduct() {
@@ -560,49 +602,10 @@ export function ScanPage() {
   const showProductForm = scanState === 'found' || scanState === 'not-found'
 
   async function handleCreateProduct() {
-    setFormError(null)
-    setIsSaving(true)
-
-    const barcode = form.barcode.trim()
-    const name = form.name.trim() || `Product ${barcode}`
-
-    let imagesBase64
-    try {
-      imagesBase64 = await buildImagesPayload()
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Could not compress image')
-      setIsSaving(false)
-      return
-    }
-
-    const payload = {
-      sku: form.sku.trim() || barcode,
-      barcode,
-      name,
-      description: form.description.trim() || undefined,
-      category: form.category.trim() || undefined,
-      minimumStockLevel: Number(form.minimumStockLevel) || 0,
-      ...(imagesBase64?.length ? { imagesBase64 } : {}),
-    }
-
-    try {
-      const response = await apiFetch('/api/products/from-scan', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      })
-      setProduct(response.data)
-      setForm(productToForm(response.data))
-      setPendingImages([])
-      setRemovedImageIds([])
-      clearCachedBarcodeLookup(barcode)
-      setCachedBarcodeLookup(barcode, { type: 'found', product: response.data })
-      setScanState('found')
-      playScanBeep('created')
-    } catch (err) {
-      setFormError(formatApiError(err))
-    } finally {
-      setIsSaving(false)
-    }
+    await saveProductFromScan({
+      path: '/api/products/from-scan',
+      method: 'POST',
+    })
   }
 
   return (
@@ -958,6 +961,37 @@ export function ScanPage() {
                   <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{formError}</p>
                 )}
 
+                {isSaving && saveProgress !== null && (
+                  <div className="space-y-2 rounded-lg border border-[var(--color-border)] bg-gray-50 px-4 py-3">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-medium text-gray-900">
+                        {scanState === 'not-found' ? 'Adding product' : 'Saving product'}
+                      </span>
+                      <span className="tabular-nums text-[var(--color-muted)]">{saveProgress}%</span>
+                    </div>
+                    <div
+                      className="h-2 overflow-hidden rounded-full bg-gray-200"
+                      role="progressbar"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={saveProgress}
+                      aria-label="Product save progress"
+                    >
+                      <div
+                        className="h-full rounded-full bg-[var(--color-primary,#2563eb)] transition-[width] duration-200 ease-out"
+                        style={{ width: `${saveProgress}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-[var(--color-muted)]">
+                      {saveProgress < COMPRESS_PROGRESS_MAX
+                        ? 'Preparing photos…'
+                        : saveProgress < UPLOAD_PROGRESS_MAX
+                          ? 'Uploading photos…'
+                          : 'Finishing up…'}
+                    </p>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap gap-2">
                   {scanState === 'not-found' ? (
                     <Button
@@ -965,7 +999,11 @@ export function ScanPage() {
                       onClick={() => void handleCreateProduct()}
                       disabled={!form.barcode.trim() || isSaving}
                     >
-                      {isSaving ? 'Adding…' : 'Add product'}
+                      {isSaving
+                        ? saveProgress !== null
+                          ? `Adding… ${saveProgress}%`
+                          : 'Adding…'
+                        : 'Add product'}
                     </Button>
                   ) : (
                     <Button
@@ -973,7 +1011,11 @@ export function ScanPage() {
                       onClick={() => void handleUpdateProduct()}
                       disabled={!form.barcode.trim() || isSaving}
                     >
-                      {isSaving ? 'Saving…' : 'Save changes'}
+                      {isSaving
+                        ? saveProgress !== null
+                          ? `Saving… ${saveProgress}%`
+                          : 'Saving…'
+                        : 'Save changes'}
                     </Button>
                   )}
                   {scanState === 'found' && canDelete && product?.status === 'ACTIVE' && (

@@ -89,3 +89,88 @@ export async function apiFetch(path, init) {
 
   return response.json()
 }
+
+function parseXhrResponse(xhr, sessionId) {
+  if (xhr.status >= 200 && xhr.status < 300) {
+    if (xhr.status === 204 || !xhr.responseText) {
+      return null
+    }
+
+    try {
+      return JSON.parse(xhr.responseText)
+    } catch {
+      throw new ApiRequestError('Invalid JSON response', xhr.status, undefined)
+    }
+  }
+
+  let error = { message: xhr.statusText }
+  try {
+    error = JSON.parse(xhr.responseText)
+  } catch {
+    // keep default message
+  }
+
+  if (xhr.status === 401 && sessionId) {
+    clearStoredSession()
+    onUnauthorized?.()
+  }
+
+  throw new ApiRequestError(
+    error.message ??
+      (xhr.status === 404
+        ? 'API route not found — check NEXT_PUBLIC_API_URL (use base URL without /api suffix)'
+        : `Request failed: ${xhr.status}`),
+    xhr.status,
+    error.details,
+  )
+}
+
+/**
+ * JSON request with XMLHttpRequest upload progress (for large payloads such as base64 images).
+ */
+export function apiFetchJsonWithProgress(path, init, onUploadProgress) {
+  if (!API_BASE_URL) {
+    return Promise.reject(
+      new ApiRequestError('NEXT_PUBLIC_API_URL is not configured', 0, undefined),
+    )
+  }
+
+  return new Promise((resolve, reject) => {
+    const sessionId = sessionGetter()
+    const xhr = new XMLHttpRequest()
+    const method = init?.method ?? 'GET'
+    const body = init?.body ?? null
+
+    xhr.open(method, `${API_BASE_URL}${path}`)
+    xhr.setRequestHeader('Content-Type', 'application/json')
+    if (sessionId) {
+      xhr.setRequestHeader('X-Session-Id', sessionId)
+    }
+
+    if (onUploadProgress && body) {
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable) {
+          onUploadProgress(event.loaded, event.total)
+        }
+      })
+    }
+
+    xhr.addEventListener('load', () => {
+      try {
+        resolve(parseXhrResponse(xhr, sessionId))
+      } catch (error) {
+        reject(error)
+      }
+    })
+
+    xhr.addEventListener('error', () => {
+      reject(new ApiRequestError('Network error', 0, undefined))
+    })
+
+    xhr.addEventListener('abort', () => {
+      reject(new ApiRequestError('Request aborted', 0, undefined))
+    })
+
+    xhr.send(body)
+  })
+}
