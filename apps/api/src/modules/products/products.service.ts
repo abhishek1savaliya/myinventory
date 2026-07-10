@@ -278,14 +278,13 @@ export async function lookupProductByBarcodeForScan(
         barcode: normalizedBarcode,
       },
     },
-    include: { images: { orderBy: { sortOrder: 'asc' } } },
   })
 
   if (!product) {
     throw new AppError(404, 'Product not found')
   }
 
-  return toProductDto(product, product.images)
+  return toProductDto(product)
 }
 
 export async function createProduct(

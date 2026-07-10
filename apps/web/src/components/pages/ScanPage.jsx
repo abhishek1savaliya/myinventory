@@ -19,6 +19,7 @@ import {
   getCachedBarcodeLookup,
   setCachedBarcodeLookup,
 } from '@/lib/scan-barcode-cache'
+import { listCameraDevices, preloadBarcodeScanner, startBarcodeScanner } from '@/lib/barcode-scanner'
 import {
   applyTorch,
   getStoredTorchPreference,
@@ -54,7 +55,7 @@ function formatApiError(err) {
 
 function shouldProcessScan(barcode, lastScanRef) {
   const now = Date.now()
-  if (lastScanRef.current.barcode === barcode && now - lastScanRef.current.at < 1200) {
+  if (lastScanRef.current.barcode === barcode && now - lastScanRef.current.at < 800) {
     return false
   }
   lastScanRef.current = { barcode, at: now }
@@ -81,7 +82,6 @@ export function ScanPage() {
   const scanningRef = useRef(false)
   const lastScanRef = useRef({ barcode: '', at: 0 })
   const lookupInFlightRef = useRef(false)
-  const zxingRef = useRef(null)
   const resultRef = useRef(null)
 
   const [cameras, setCameras] = useState([])
@@ -150,28 +150,14 @@ export function ScanPage() {
     setStoredTorchPreference(next)
   }
 
-  const loadZxing = useCallback(async () => {
-    if (zxingRef.current) {
-      return zxingRef.current
+  const enrichProductDetails = useCallback(async (productId, barcode) => {
+    try {
+      const response = await apiFetch(`/api/products/${productId}`)
+      setProduct(response.data)
+      setCachedBarcodeLookup(barcode, { type: 'found', product: response.data })
+    } catch {
+      // Keep the fast lookup result if enrichment fails.
     }
-
-    const [{ BrowserMultiFormatReader }, { BarcodeFormat, DecodeHintType }] = await Promise.all([
-      import('@zxing/browser'),
-      import('@zxing/library'),
-    ])
-
-    const hints = new Map()
-    hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-      BarcodeFormat.EAN_13,
-      BarcodeFormat.EAN_8,
-      BarcodeFormat.UPC_A,
-      BarcodeFormat.UPC_E,
-      BarcodeFormat.CODE_128,
-      BarcodeFormat.CODE_39,
-    ])
-
-    zxingRef.current = { BrowserMultiFormatReader, hints }
-    return zxingRef.current
   }, [])
 
   const lookupBarcode = useCallback(
@@ -187,8 +173,6 @@ export function ScanPage() {
       setScannedBarcode(trimmed)
       setLookupError(null)
       setProduct(null)
-      setIsLookingUp(true)
-      setScanState('looking-up')
 
       const finishLookup = () => {
         lookupInFlightRef.current = false
@@ -198,12 +182,16 @@ export function ScanPage() {
         })
       }
 
-      const applyFound = (data) => {
+      const applyFound = (data, enrich = true) => {
         setProduct(data)
         setForm(productToForm(data))
         setPendingImages([])
         setRemovedImageIds([])
         setScanState('found')
+
+        if (enrich && data.id && (!data.images || data.images.length === 0)) {
+          void enrichProductDetails(data.id, trimmed)
+        }
       }
 
       const applyNotFound = () => {
@@ -230,6 +218,9 @@ export function ScanPage() {
         return
       }
 
+      setIsLookingUp(true)
+      setScanState('looking-up')
+
       try {
         const response = await apiFetch(`/api/products/barcode/${encodeURIComponent(trimmed)}`)
         setCachedBarcodeLookup(trimmed, { type: 'found', product: response.data })
@@ -246,13 +237,12 @@ export function ScanPage() {
         finishLookup()
       }
     },
-    [stopScanner],
+    [enrichProductDetails, stopScanner],
   )
 
   const refreshCameras = useCallback(async () => {
     try {
-      const { BrowserMultiFormatReader } = await import('@zxing/browser')
-      const devices = await BrowserMultiFormatReader.listVideoInputDevices()
+      const devices = await listCameraDevices()
       setCameras(devices)
       return devices
     } catch {
@@ -269,59 +259,40 @@ export function ScanPage() {
       setScanState('scanning')
 
       try {
-        const { BrowserMultiFormatReader, hints } = await loadZxing()
-        const reader = new BrowserMultiFormatReader(hints)
-
         if (!videoRef.current) {
           throw new Error('Camera preview is not ready')
         }
 
-        const onDecode = (result) => {
-          if (result) {
-            void lookupBarcode(result.getText())
-          }
-        }
-
-        const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
-        const videoConstraints = mobile
-          ? {
-              facingMode: { ideal: 'environment' },
-              width: { ideal: 640, max: 1280 },
-              height: { ideal: 480, max: 720 },
-            }
-          : { width: { ideal: 1280 }, height: { ideal: 720 } }
-
-        let controls
-        if (deviceId) {
-          controls = await reader.decodeFromVideoDevice(deviceId, videoRef.current, onDecode)
-        } else {
-          controls = await reader.decodeFromConstraints(
-            { video: videoConstraints },
-            videoRef.current,
-            onDecode,
-          )
-        }
+        const controls = await startBarcodeScanner({
+          video: videoRef.current,
+          deviceId: deviceId || undefined,
+          onDetect: (value) => {
+            void lookupBarcode(value)
+          },
+        })
 
         controlsRef.current = controls
         setIsScannerActive(true)
         setCameraStarted(true)
+        setScanState('scanning')
 
-        if (mobile) {
-          await refreshTorchState()
+        if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) {
+          void refreshTorchState()
         }
 
-        const devices = await refreshCameras()
-        if (deviceId) {
-          setSelectedCameraId(deviceId)
-        } else if (devices.length > 0) {
-          const preferredDevice =
-            devices.find((device) => /back|rear|environment/i.test(device.label)) ??
-            devices[devices.length - 1] ??
-            devices[0]
-          if (preferredDevice) {
-            setSelectedCameraId(preferredDevice.deviceId)
+        void refreshCameras().then((devices) => {
+          if (deviceId) {
+            setSelectedCameraId(deviceId)
+          } else if (devices.length > 0) {
+            const preferredDevice =
+              devices.find((device) => /back|rear|environment/i.test(device.label)) ??
+              devices[devices.length - 1] ??
+              devices[0]
+            if (preferredDevice) {
+              setSelectedCameraId(preferredDevice.deviceId)
+            }
           }
-        }
+        })
       } catch (err) {
         let message = 'Unable to access camera. Check browser permissions or choose another camera.'
 
@@ -345,14 +316,14 @@ export function ScanPage() {
         scanningRef.current = false
       }
     },
-    [lookupBarcode, refreshCameras, refreshTorchState, stopScanner, loadZxing],
+    [lookupBarcode, refreshCameras, refreshTorchState, stopScanner],
   )
 
   useEffect(() => {
     const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
     setIsMobileDevice(mobile)
 
-    void loadZxing()
+    void preloadBarcodeScanner()
 
     if (API_BASE_URL) {
       try {
