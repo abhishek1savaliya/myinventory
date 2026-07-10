@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { AppFeature } from '../types/features.js'
+import { UserRole } from '../types/index.js'
 
 export const disableUserResponseSchema = z.object({
   disabled: z.boolean(),
@@ -15,3 +16,9 @@ export const updateUserFeaturesSchema = z.object({
 })
 
 export type UpdateUserFeaturesInput = z.infer<typeof updateUserFeaturesSchema>
+
+export const updateUserRoleSchema = z.object({
+  role: z.nativeEnum(UserRole),
+})
+
+export type UpdateUserRoleInput = z.infer<typeof updateUserRoleSchema>

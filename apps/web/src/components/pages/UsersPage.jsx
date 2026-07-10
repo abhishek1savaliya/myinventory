@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Dialog } from '@/components/ui/dialog'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { UserFeaturesDialog } from '@/components/users/UserFeaturesDialog'
+import { UserRoleDialog } from '@/components/users/UserRoleDialog'
 import { formatDate } from '@/lib/utils'
 
 const ROLES = [
@@ -26,7 +27,7 @@ const emptyForm = {
   role: UserRole.WAREHOUSE_USER,
 }
 
-function UserTable({ users, currentUserId, onDisable, onActivate, onManageFeatures }) {
+function UserTable({ users, currentUserId, onDisable, onActivate, onManageFeatures, onChangeRole }) {
   if (users.length === 0) {
     return <p className="text-sm text-[var(--color-muted)]">No users in this list.</p>
   }
@@ -62,6 +63,11 @@ function UserTable({ users, currentUserId, onDisable, onActivate, onManageFeatur
               </td>
               <td className="px-4 py-3">
                 <div className="flex flex-wrap gap-2">
+                  {onChangeRole && user.id !== currentUserId && (
+                    <Button variant="outline" size="sm" onClick={() => onChangeRole(user)}>
+                      Role
+                    </Button>
+                  )}
                   {onManageFeatures && (
                     <Button variant="outline" size="sm" onClick={() => onManageFeatures(user)}>
                       Features
@@ -98,6 +104,8 @@ export function UsersPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [featuresUser, setFeaturesUser] = useState(null)
   const [featuresOpen, setFeaturesOpen] = useState(false)
+  const [roleUser, setRoleUser] = useState(null)
+  const [roleOpen, setRoleOpen] = useState(false)
 
   const activeUsers = useMemo(
     () => users.filter((user) => user.status === UserStatus.ACTIVE),
@@ -208,6 +216,10 @@ export function UsersPage() {
               users={activeUsers}
               currentUserId={currentUser?.id}
               onDisable={handleDisable}
+              onChangeRole={(user) => {
+                setRoleUser(user)
+                setRoleOpen(true)
+              }}
               onManageFeatures={(user) => {
                 setFeaturesUser(user)
                 setFeaturesOpen(true)
@@ -220,6 +232,10 @@ export function UsersPage() {
             <UserTable
               users={disabledUsers}
               onActivate={handleActivate}
+              onChangeRole={(user) => {
+                setRoleUser(user)
+                setRoleOpen(true)
+              }}
               onManageFeatures={(user) => {
                 setFeaturesUser(user)
                 setFeaturesOpen(true)
@@ -292,6 +308,13 @@ export function UsersPage() {
           </div>
         </div>
       </Dialog>
+
+      <UserRoleDialog
+        user={roleUser}
+        open={roleOpen}
+        onClose={() => setRoleOpen(false)}
+        onSaved={() => void loadUsers()}
+      />
 
       <UserFeaturesDialog
         user={featuresUser}

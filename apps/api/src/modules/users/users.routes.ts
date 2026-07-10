@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { UserRole, createUserSchema, updateUserFeaturesSchema } from '@myinventory/shared'
+import { UserRole, createUserSchema, updateUserFeaturesSchema, updateUserRoleSchema } from '@myinventory/shared'
 import { asyncHandler } from '../../utils/async-handler.js'
 import { validateBody } from '../../middleware/validate.js'
 import { authenticate, type AuthenticatedRequest } from '../../middleware/auth.js'
@@ -14,6 +14,7 @@ import {
   rejectDisableRequest,
   requestDisableUser,
   updateUserFeatures,
+  updateUserRole,
 } from './users.service.js'
 
 export const usersRouter = Router()
@@ -73,6 +74,19 @@ usersRouter.patch(
     const orgId = requireOrgId(req)
     const user = await updateUserFeatures(orgId, req.params.id, req.body)
     res.json({ data: user })
+  }),
+)
+
+usersRouter.patch(
+  '/users/:id/role',
+  asyncHandler(authenticate),
+  requireRoles(UserRole.ADMIN),
+  validateBody(updateUserRoleSchema),
+  asyncHandler(async (req, res) => {
+    const { user } = req as AuthenticatedRequest
+    const orgId = requireOrgId(req)
+    const updated = await updateUserRole(orgId, req.params.id, user.sub, req.body)
+    res.json({ data: updated })
   }),
 )
 

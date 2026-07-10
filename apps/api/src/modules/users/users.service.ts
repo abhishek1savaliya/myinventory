@@ -4,9 +4,10 @@ import type {
   CreateUserInput,
   DisableUserResponse,
   UpdateUserFeaturesInput,
+  UpdateUserRoleInput,
   UserDisableRequestDto,
 } from '@myinventory/shared'
-import { UserRole, UserStatus, computeExtraFeatures } from '@myinventory/shared'
+import { UserRole, UserStatus, computeExtraFeatures, getEffectiveFeatures, AppFeature } from '@myinventory/shared'
 import bcrypt from 'bcryptjs'
 import { prisma } from '@myinventory/prisma'
 import { AppError } from '../../middleware/error-handler.js'
@@ -331,6 +332,45 @@ export async function updateUserFeatures(
   await prisma.user.update({
     where: { id: targetUserId },
     data: {
+      extraFeatures: toPrismaFeatures(extraFeatures),
+    },
+  })
+
+  return reloadAuthUser(targetUserId)
+}
+
+export async function updateUserRole(
+  organizationId: string,
+  targetUserId: string,
+  actingUserId: string,
+  input: UpdateUserRoleInput,
+): Promise<AuthUser> {
+  if (targetUserId === actingUserId) {
+    throw new AppError(400, 'You cannot change your own role')
+  }
+
+  const target = await getUserInOrganization(targetUserId, organizationId)
+  const newRole = input.role
+
+  if (target.role === newRole) {
+    throw new AppError(400, 'User already has this role')
+  }
+
+  const oldRole = target.role as UserRole
+
+  if (oldRole === UserRole.ADMIN && newRole !== UserRole.ADMIN) {
+    await ensureMinimumOneAdminAfterDisable(organizationId, targetUserId)
+  }
+
+  const extraFeatures = computeExtraFeatures(
+    newRole,
+    getEffectiveFeatures(oldRole, (target.extraFeatures ?? []) as AppFeature[]),
+  )
+
+  await prisma.user.update({
+    where: { id: targetUserId },
+    data: {
+      role: newRole,
       extraFeatures: toPrismaFeatures(extraFeatures),
     },
   })
