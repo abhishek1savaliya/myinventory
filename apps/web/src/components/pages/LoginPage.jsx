@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { OrgThemeScope } from '@/components/theme/OrgThemeScope'
 
 export function LoginPage() {
   const params = useParams()
@@ -64,19 +65,19 @@ export function LoginPage() {
     }
   }
 
+  const pageStyle = orgProfile?.loginBackgroundUrl
+    ? {
+        backgroundImage: `linear-gradient(rgba(248, 249, 251, 0.88), rgba(248, 249, 251, 0.92)), url(${orgProfile.loginBackgroundUrl})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      }
+    : { backgroundColor: 'var(--color-background)' }
+
   return (
-    <div
-      className="flex h-full min-h-[100dvh] items-center justify-center p-4 sm:p-6"
-      style={{
-        ...(orgProfile?.loginBackgroundUrl
-          ? {
-              backgroundImage: `linear-gradient(rgba(248, 249, 251, 0.88), rgba(248, 249, 251, 0.92)), url(${orgProfile.loginBackgroundUrl})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-            }
-          : { backgroundColor: 'var(--color-background)' }),
-        ...(orgProfile?.themeColor ? { '--color-primary': orgProfile.themeColor } : {}),
-      }}
+    <OrgThemeScope
+      themeColor={orgProfile?.themeColor}
+      className="flex h-full min-h-dvh items-center justify-center p-4 sm:p-6"
+      style={pageStyle}
     >
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="text-center">
@@ -158,6 +159,6 @@ export function LoginPage() {
           </p>
         </CardContent>
       </Card>
-    </div>
+    </OrgThemeScope>
   )
 }

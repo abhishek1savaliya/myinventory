@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/use-auth'
 import { orgLoginPath } from '@/lib/org-paths'
 import { AppShell } from '@/components/layout/AppShell'
+import { OrgThemeScope } from '@/components/theme/OrgThemeScope'
 import { FullPageLoader } from '@/components/ui/loader'
 
 export function ProtectedLayout({ children }) {
@@ -32,5 +33,9 @@ export function ProtectedLayout({ children }) {
     return null
   }
 
-  return <AppShell orgSlug={orgSlug}>{children}</AppShell>
+  return (
+    <OrgThemeScope themeColor={user.organization?.themeColor} className="h-full">
+      <AppShell orgSlug={orgSlug}>{children}</AppShell>
+    </OrgThemeScope>
+  )
 }

@@ -34,17 +34,37 @@ export function AuthProvider({ children }) {
     if (!sessionId) {
       setUser(null)
       setIsLoading(false)
-      return
+      return null
     }
 
     try {
       const response = await apiFetch('/api/auth/me')
       setUser(response.user)
+      return response.user
     } catch {
       clearStoredSession()
       setUser(null)
+      return null
     } finally {
       setIsLoading(false)
+    }
+  }, [])
+
+  const refreshUser = useCallback(async () => {
+    const sessionId = getStoredSessionId()
+    if (!sessionId) {
+      setUser(null)
+      return null
+    }
+
+    try {
+      const response = await apiFetch('/api/auth/me')
+      setUser(response.user)
+      return response.user
+    } catch {
+      clearStoredSession()
+      setUser(null)
+      return null
     }
   }, [])
 
@@ -91,10 +111,11 @@ export function AuthProvider({ children }) {
       isLoading,
       login,
       logout,
+      refreshUser,
       hasRole,
       hasFeature,
     }),
-    [user, isLoading, login, logout, hasRole, hasFeature],
+    [user, isLoading, login, logout, refreshUser, hasRole, hasFeature],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { OrgThemeScope } from '@/components/theme/OrgThemeScope'
 
 const DEFAULT_THEME_COLOR = '#1e3a5f'
 
@@ -68,7 +69,7 @@ function BrandingImageField({ id, label, description, previewUrl, onSelect, onRe
   )
 }
 
-export function LoginBrandingSettings({ org }) {
+export function LoginBrandingSettings({ org, onSaved }) {
   const [logoUrl, setLogoUrl] = useState(org.logoUrl)
   const [loginBackgroundUrl, setLoginBackgroundUrl] = useState(org.loginBackgroundUrl)
   const [themeColor, setThemeColor] = useState(org.themeColor ?? DEFAULT_THEME_COLOR)
@@ -126,6 +127,7 @@ export function LoginBrandingSettings({ org }) {
       setRemoveLogo(false)
       setRemoveBackground(false)
       setSuccess('Login page branding saved.')
+      onSaved?.(response.data)
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : 'Failed to save branding')
     } finally {
@@ -138,10 +140,11 @@ export function LoginBrandingSettings({ org }) {
       <CardHeader>
         <CardTitle className="text-lg">Login page branding</CardTitle>
         <CardDescription>
-          Customize how your team sees the sign-in page — logo, background image, and theme color.
+          Customize your sign-in page and app colors — logo, background image, and theme color.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
+        <OrgThemeScope themeColor={themeColor} className="space-y-5 rounded-lg">
         <BrandingImageField
           id="branding-logo"
           label="Organization logo"
@@ -177,7 +180,8 @@ export function LoginBrandingSettings({ org }) {
         <div className="space-y-2">
           <Label htmlFor="branding-theme-color">Theme color</Label>
           <p className="text-xs text-[var(--color-muted)]">
-            Used for buttons and links on your login page.
+            Applied across your login page, sidebar, buttons, and links. Text on buttons adjusts
+            automatically for readability.
           </p>
           <div className="flex items-center gap-3">
             <input
@@ -198,6 +202,20 @@ export function LoginBrandingSettings({ org }) {
             />
           </div>
         </div>
+
+        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-sidebar)] p-4">
+          <p className="mb-3 text-xs font-medium text-[var(--color-muted)]">Theme preview</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="button" size="sm">
+              Primary button
+            </Button>
+            <Button type="button" variant="outline" size="sm">
+              Outline button
+            </Button>
+            <span className="text-sm font-medium text-[var(--color-primary)]">Primary link text</span>
+          </div>
+        </div>
+        </OrgThemeScope>
 
         {error && (
           <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">

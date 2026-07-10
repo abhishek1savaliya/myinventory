@@ -47,7 +47,7 @@ function SettingToggle({ id, label, description, checked, onChange, disabled = f
 }
 
 export function SettingsPage() {
-  const { user } = useAuth()
+  const { user, refreshUser } = useAuth()
   const [torchOn, setTorchOn] = useState(false)
   const [scanSoundOn, setScanSoundOn] = useState(true)
   const [scanSoundVolume, setScanSoundVolume] = useState(100)
@@ -160,7 +160,9 @@ export function SettingsPage() {
         </Card>
       )}
 
-      {isOwner && org && <LoginBrandingSettings org={org} />}
+      {isOwner && org && (
+        <LoginBrandingSettings org={org} onSaved={() => void refreshUser()} />
+      )}
 
       <Card>
         <CardHeader>
