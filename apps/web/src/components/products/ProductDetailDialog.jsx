@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { PageLoader } from '@/components/ui/loader'
+import { ImageCarousel } from '@/components/ui/image-carousel'
 import { StatusBadge } from '@/components/ui/status-badge'
 
 function DetailField({ label, value, mono = false }) {
@@ -35,25 +36,7 @@ function ProductImageGallery({ images, imageUrl, productName }) {
     )
   }
 
-  return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-      {photos.map((image, index) => (
-        <a
-          key={image.id}
-          href={image.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="group overflow-hidden rounded-lg border border-[var(--color-border)] bg-gray-50"
-        >
-          <img
-            src={image.url}
-            alt={`${productName} photo ${index + 1}`}
-            className="aspect-square w-full object-cover transition-transform group-hover:scale-105"
-          />
-        </a>
-      ))}
-    </div>
-  )
+  return <ImageCarousel images={photos} alt={productName} openOnClick />
 }
 
 export function ProductDetailDialog({ productId, open, onClose, onEdit, canManage }) {

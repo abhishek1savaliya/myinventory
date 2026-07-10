@@ -11,6 +11,60 @@ import { Button } from '@/components/ui/button'
 import { getNavItems } from '@/lib/nav-items'
 import { orgDashboardPath } from '@/lib/org-paths'
 
+function OrganizationBrand({ organization, compact = false }) {
+  if (!organization) {
+    return (
+      <div className="min-w-0">
+        <p className={cn('font-semibold text-[var(--color-primary)]', compact ? 'text-base' : 'text-lg')}>
+          MyInventory
+        </p>
+      </div>
+    )
+  }
+
+  const displayName = organization.tradingName || organization.name
+  const showSecondaryName =
+    organization.name && organization.tradingName && organization.name !== organization.tradingName
+
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      {organization.logoUrl ? (
+        <img
+          src={organization.logoUrl}
+          alt=""
+          className={cn(
+            'shrink-0 rounded-md border border-[var(--color-sidebar-border)] bg-white object-contain',
+            compact ? 'h-9 w-9' : 'h-11 w-11',
+          )}
+        />
+      ) : (
+        <div
+          className={cn(
+            'flex shrink-0 items-center justify-center rounded-md bg-[var(--color-primary)] font-semibold text-[var(--color-primary-foreground)]',
+            compact ? 'h-9 w-9 text-sm' : 'h-11 w-11 text-base',
+          )}
+          aria-hidden
+        >
+          {displayName.charAt(0).toUpperCase()}
+        </div>
+      )}
+      <div className="min-w-0">
+        <p
+          className={cn(
+            'truncate font-semibold text-[var(--color-primary)]',
+            compact ? 'text-base' : 'text-lg',
+          )}
+        >
+          {displayName}
+        </p>
+        {showSecondaryName && (
+          <p className="truncate text-xs text-[var(--color-muted)]">{organization.name}</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function NavLink({ href, label, icon: Icon, isActive, onNavigate, compact }) {
   return (
     <Link
@@ -49,10 +103,7 @@ function SidebarContent({
     <>
       {showHeader && (
         <div className="border-b border-[var(--color-sidebar-border)] px-4 py-4">
-          <h1 className="text-lg font-semibold text-[var(--color-primary)]">MyInventory</h1>
-          <p className="truncate text-xs text-[var(--color-muted)]">
-            {user?.organization?.tradingName ?? 'Warehouse Management'}
-          </p>
+          <OrganizationBrand organization={user?.organization} />
         </div>
       )}
       <nav className="flex-1 overflow-y-auto p-2">
@@ -146,10 +197,7 @@ export function AppShell({ orgSlug, children }) {
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <header className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 lg:hidden">
-          <div className="min-w-0">
-            <p className="truncate text-base font-semibold text-[var(--color-primary)]">MyInventory</p>
-            <p className="truncate text-xs text-[var(--color-muted)]">{user?.name}</p>
-          </div>
+          <OrganizationBrand organization={user?.organization} compact />
           <Button
             variant="outline"
             size="sm"

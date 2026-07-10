@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/status-badge'
+import { ImageCarousel } from '@/components/ui/image-carousel'
 
 import { initScanAudio, playScanBeep } from '@/lib/scan-sound'
 import { compressImageDataUrl, compressImageFile } from '@/lib/compress-image'
@@ -406,6 +407,29 @@ export function ScanPage() {
   const savedImages = (product?.images ?? []).filter((image) => !removedImageIds.includes(image.id))
   const totalImages = savedImages.length + pendingImages.length
   const canAddMoreImages = totalImages < MAX_PRODUCT_IMAGES
+  const displayPhotos = [
+    ...savedImages.map((image) => ({
+      key: image.id,
+      url: image.url,
+      type: 'saved',
+      imageId: image.id,
+    })),
+    ...pendingImages.map((image, index) => ({
+      key: `pending-${index}`,
+      url: image,
+      type: 'pending',
+      pendingIndex: index,
+    })),
+  ]
+
+  function removeDisplayPhoto(photo) {
+    if (photo.type === 'saved') {
+      setRemovedImageIds((prev) => [...prev, photo.imageId])
+      return
+    }
+
+    setPendingImages((prev) => prev.filter((_, itemIndex) => itemIndex !== photo.pendingIndex))
+  }
 
   async function addPendingImage(dataUrl) {
     if (!canAddMoreImages) {
@@ -821,47 +845,25 @@ export function ScanPage() {
                       No photos yet
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {savedImages.map((image) => (
-                        <div key={image.id} className="relative overflow-hidden rounded-lg border border-[var(--color-border)] bg-gray-50">
-                          <img
-                            src={image.url}
-                            alt={form.name || 'Product'}
-                            className="aspect-square w-full object-cover"
-                          />
+                    <ImageCarousel
+                      images={displayPhotos}
+                      alt={form.name || 'Product'}
+                      renderSlideOverlay={(slide) => {
+                        const photo = displayPhotos.find((item) => item.key === slide.key)
+                        if (!photo) return null
+
+                        return (
                           <button
                             type="button"
-                            onClick={() => setRemovedImageIds((prev) => [...prev, image.id])}
-                            className="absolute right-1 top-1 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"
+                            onClick={() => removeDisplayPhoto(photo)}
+                            className="absolute right-2 top-2 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"
                             aria-label="Remove photo"
                           >
                             <X className="h-3.5 w-3.5" />
                           </button>
-                        </div>
-                      ))}
-                      {pendingImages.map((image, index) => (
-                        <div
-                          key={`pending-${index}`}
-                          className="relative overflow-hidden rounded-lg border border-dashed border-[var(--color-border)] bg-gray-50"
-                        >
-                          <img
-                            src={image}
-                            alt={`New photo ${index + 1}`}
-                            className="aspect-square w-full object-cover"
-                          />
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setPendingImages((prev) => prev.filter((_, itemIndex) => itemIndex !== index))
-                            }
-                            className="absolute right-1 top-1 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"
-                            aria-label="Remove photo"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
+                        )
+                      }}
+                    />
                   )}
                   <div className="flex flex-wrap gap-2">
                     <Button
