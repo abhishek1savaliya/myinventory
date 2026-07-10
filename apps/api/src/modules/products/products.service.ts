@@ -323,10 +323,7 @@ export async function createProduct(
 
     return getProductById(organizationId, product.id)
   } catch (error) {
-    if (isUniqueConstraintError(error)) {
-      throw new AppError(409, 'SKU or barcode already exists')
-    }
-    throw error
+    throwProductUniqueError(error)
   }
 }
 
@@ -421,10 +418,7 @@ export async function updateProduct(
 
     return getProductById(organizationId, product.id)
   } catch (error) {
-    if (isUniqueConstraintError(error)) {
-      throw new AppError(409, 'SKU or barcode already exists')
-    }
-    throw error
+    throwProductUniqueError(error)
   }
 }
 
@@ -449,4 +443,21 @@ function isUniqueConstraintError(error: unknown): boolean {
     'code' in error &&
     (error as { code: string }).code === 'P2002'
   )
+}
+
+function throwProductUniqueError(error: unknown): never {
+  if (isUniqueConstraintError(error)) {
+    const target = (error as { meta?: { target?: string[] } }).meta?.target ?? []
+    if (
+      (target.includes('sku') || target.includes('barcode')) &&
+      !target.includes('organization_id')
+    ) {
+      throw new AppError(
+        409,
+        'This SKU or barcode is already registered globally. Run the latest database migration to allow the same product in different organizations.',
+      )
+    }
+    throw new AppError(409, 'SKU or barcode already exists in this organization')
+  }
+  throw error
 }
