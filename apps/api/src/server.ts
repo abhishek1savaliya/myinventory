@@ -14,6 +14,7 @@ import { ensureSessionBucket } from './lib/session-storage.js'
 import { ensureProductImagesBucket } from './lib/product-images.js'
 import { ensureOrgBrandingBucket } from './lib/org-branding.js'
 import { checkRedisConnection } from './lib/redis.js'
+import { initChatSocket } from './modules/chat/chat.socket.js'
 
 const app = express()
 
@@ -68,6 +69,9 @@ async function startServer(): Promise<void> {
   const server = app.listen(runtimePort, runtimeHost, () => {
     console.log(`[MyInventory API] listening on http://${runtimeHost}:${runtimePort}`)
   })
+
+  initChatSocket(server)
+  console.log('[MyInventory API] Socket.IO chat ready')
 
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {

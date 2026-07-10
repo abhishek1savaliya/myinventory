@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { LogOut, Menu, MoreHorizontal } from 'lucide-react'
 import { useAuth } from '@/contexts/use-auth'
 import { DisableRequestBanner } from '@/components/users/DisableRequestBanner'
+import { ChatNotificationStack } from '@/components/chat/ChatNotificationStack'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { getNavItems } from '@/lib/nav-items'
@@ -209,6 +210,8 @@ export function AppShell({ orgSlug, children }) {
         </header>
 
         <DisableRequestBanner />
+
+        <ChatNotificationStack />
 
         <main className="main-content flex-1 overflow-x-hidden overflow-y-auto p-4 lg:p-6">
           {children}

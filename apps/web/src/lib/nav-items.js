@@ -11,6 +11,7 @@ import {
   History,
   Users,
   Settings,
+  MessageCircle,
 } from 'lucide-react'
 import { AppFeature } from '@myinventory/shared'
 import { orgPath } from '@/lib/org-paths'
@@ -73,6 +74,7 @@ export function getNavItems(orgSlug) {
       feature: AppFeature.TRANSACTIONS,
     },
     { href: orgPath(orgSlug, '/users'), label: 'Users', icon: Users, feature: AppFeature.USERS },
+    { href: orgPath(orgSlug, '/chat'), label: 'Chat', icon: MessageCircle, feature: AppFeature.CHAT },
     {
       href: orgPath(orgSlug, '/settings'),
       label: 'Settings',

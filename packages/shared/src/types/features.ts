@@ -12,6 +12,7 @@ export enum AppFeature {
   TRANSACTIONS = 'TRANSACTIONS',
   USERS = 'USERS',
   SETTINGS = 'SETTINGS',
+  CHAT = 'CHAT',
 }
 
 export const ALL_APP_FEATURES = Object.values(AppFeature)
@@ -30,6 +31,7 @@ export const FEATURE_LABELS: Record<AppFeature, string> = {
   [AppFeature.TRANSACTIONS]: 'Transactions',
   [AppFeature.USERS]: 'Users',
   [AppFeature.SETTINGS]: 'Settings',
+  [AppFeature.CHAT]: 'Chat',
 }
 
 export const ROLE_DEFAULT_FEATURES: Record<string, AppFeature[]> = {
@@ -46,6 +48,7 @@ export const ROLE_DEFAULT_FEATURES: Record<string, AppFeature[]> = {
     AppFeature.LOCATIONS,
     AppFeature.TRANSACTIONS,
     AppFeature.SETTINGS,
+    AppFeature.CHAT,
   ],
   WAREHOUSE_USER: [
     AppFeature.DASHBOARD,
@@ -58,12 +61,14 @@ export const ROLE_DEFAULT_FEATURES: Record<string, AppFeature[]> = {
     AppFeature.WAREHOUSES,
     AppFeature.LOCATIONS,
     AppFeature.TRANSACTIONS,
+    AppFeature.CHAT,
   ],
   PICKER: [
     AppFeature.SCAN,
     AppFeature.RECEIVING,
     AppFeature.PICKING,
     AppFeature.MOVEMENT,
+    AppFeature.CHAT,
   ],
 }
 

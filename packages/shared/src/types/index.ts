@@ -63,6 +63,7 @@ export type {
   MoveStockResult,
 } from './inventory.js'
 export type { UserDisableRequestDto } from './users.js'
+export type { ChatUserSummary, ChatMessageDto, ChatConversationSummary } from './chat.js'
 export type {
   OrganizationBranding,
   OrganizationSummary,
