@@ -1,3 +1,4 @@
+import { ChatAttachmentType } from '@prisma/client'
 import { prisma } from '@myinventory/prisma'
 import type { ChatConversationSummary, ChatMessageDto } from '@myinventory/shared'
 import { uploadChatAttachment } from '../../lib/chat-attachments.js'
@@ -47,9 +48,6 @@ function conversationMessageFilter(orgId: string, userId: string, partnerId: str
       { senderId: userId, recipientId: partnerId, hiddenForSenderAt: null },
       { senderId: partnerId, recipientId: userId, hiddenForRecipientAt: null },
     ],
-  } as {
-    organizationId: string
-    OR: Array<Record<string, unknown>>
   }
 }
 
@@ -216,12 +214,6 @@ export async function sendChatMessage(
       recipientId,
       body,
       replyToMessageId: replyToMessageId ?? null,
-    } as {
-      organizationId: string
-      senderId: string
-      recipientId: string
-      body: string
-      replyToMessageId: string | null
     },
     include: messageInclude,
   })
@@ -257,21 +249,11 @@ export async function sendChatAttachmentMessage(
       senderId,
       recipientId,
       body: caption,
-      attachmentType: upload.type,
+      attachmentType: upload.type as ChatAttachmentType,
       attachmentUrl: upload.url,
       attachmentName: input.fileName,
       attachmentMimeType: input.mimeType,
       attachmentSize: upload.size,
-    } as {
-      organizationId: string
-      senderId: string
-      recipientId: string
-      body: string
-      attachmentType: string
-      attachmentUrl: string
-      attachmentName: string
-      attachmentMimeType: string
-      attachmentSize: number
     },
     include: messageInclude,
   })
@@ -330,11 +312,6 @@ export async function markMessageDelivered(
       organizationId: orgId,
       recipientId,
       deliveredAt: null,
-    } as {
-      id: string
-      organizationId: string
-      recipientId: string
-      deliveredAt: null
     },
     include: messageInclude,
   })
@@ -345,7 +322,7 @@ export async function markMessageDelivered(
 
   const updated = await prisma.chatMessage.update({
     where: { id: messageId },
-    data: { deliveredAt: new Date() } as { deliveredAt: Date },
+    data: { deliveredAt: new Date() },
     include: messageInclude,
   })
 
@@ -360,12 +337,6 @@ export async function getTotalUnreadCount(orgId: string, userId: string): Promis
       readAt: null,
       hiddenForRecipientAt: null,
       deletedForEveryoneAt: null,
-    } as {
-      organizationId: string
-      recipientId: string
-      readAt: null
-      hiddenForRecipientAt: null
-      deletedForEveryoneAt: null
     },
   })
 }
@@ -382,12 +353,12 @@ export async function deleteChatMessageForMe(
   if (message.senderId === userId) {
     await prisma.chatMessage.update({
       where: { id: messageId },
-      data: { hiddenForSenderAt: now } as { hiddenForSenderAt: Date },
+      data: { hiddenForSenderAt: now },
     })
   } else {
     await prisma.chatMessage.update({
       where: { id: messageId },
-      data: { hiddenForRecipientAt: now } as { hiddenForRecipientAt: Date },
+      data: { hiddenForRecipientAt: now },
     })
   }
 
@@ -411,7 +382,7 @@ export async function deleteChatMessageForEveryone(
 
   const updated = await prisma.chatMessage.update({
     where: { id: messageId },
-    data: { deletedForEveryoneAt: new Date() } as { deletedForEveryoneAt: Date },
+    data: { deletedForEveryoneAt: new Date() },
     include: messageInclude,
   })
 
@@ -447,7 +418,7 @@ export async function forwardChatMessage(
       attachmentMimeType: original.attachmentMimeType,
       attachmentSize: original.attachmentSize,
       forwardedFromId: original.id,
-    } as Record<string, unknown>,
+    },
     include: messageInclude,
   })
 
