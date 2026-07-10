@@ -124,6 +124,13 @@ export async function createUser(organizationId: string, input: CreateUserInput)
       'code' in error &&
       (error as { code: string }).code === 'P2002'
     ) {
+      const target = (error as { meta?: { target?: string[] } }).meta?.target ?? []
+      if (target.includes('email') && !target.includes('organization_id')) {
+        throw new AppError(
+          409,
+          'This email is already registered globally. Run the latest database migration to allow the same email in different organizations.',
+        )
+      }
       throw new AppError(409, 'A user with this email already exists in this organization')
     }
     throw error

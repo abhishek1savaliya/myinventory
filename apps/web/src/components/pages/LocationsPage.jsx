@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog } from '@/components/ui/dialog'
 import { StatusBadge } from '@/components/ui/status-badge'
+import { PageLoader } from '@/components/ui/loader'
 
 const emptyForm = {
   warehouseId: '',
@@ -174,7 +175,7 @@ export function LocationsPage() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-[var(--color-muted)]">Loading locations...</p>
+        <PageLoader />
       ) : locations.length === 0 ? (
         <div className="rounded-lg border border-dashed border-[var(--color-border)] bg-white p-8 text-center">
           <p className="text-sm text-[var(--color-muted)]">No locations found</p>

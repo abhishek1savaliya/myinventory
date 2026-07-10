@@ -7,6 +7,7 @@ import { formatDateTime } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import { PageLoader } from '@/components/ui/loader'
 
 const TRANSACTION_TYPES = Object.values(TransactionTypeEnum)
 
@@ -149,7 +150,7 @@ export function TransactionsPage() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-[var(--color-muted)]">Loading transactions...</p>
+        <PageLoader />
       ) : transactions.length === 0 ? (
         <div className="rounded-lg border border-dashed border-[var(--color-border)] bg-white p-8 text-center">
           <p className="text-sm text-[var(--color-muted)]">No transactions found</p>

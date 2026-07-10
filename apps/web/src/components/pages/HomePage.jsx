@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/use-auth'
 import { getNavItems } from '@/lib/nav-items'
 import { orgDashboardPath } from '@/lib/org-paths'
 import { DashboardPage } from '@/components/pages/DashboardPage'
+import { PageLoader } from '@/components/ui/loader'
 import { AppFeature } from '@myinventory/shared'
 
 export function HomePage() {
@@ -27,12 +28,12 @@ export function HomePage() {
   }, [hasFeature, isLoading, router, orgSlug])
 
   if (isLoading) {
-    return <p className="text-sm text-[var(--color-muted)]">Loading...</p>
+    return <PageLoader />
   }
 
   if (hasFeature(AppFeature.DASHBOARD)) {
     return <DashboardPage />
   }
 
-  return <p className="text-sm text-[var(--color-muted)]">Loading...</p>
+  return <PageLoader />
 }

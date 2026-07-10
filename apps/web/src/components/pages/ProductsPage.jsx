@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog } from '@/components/ui/dialog'
+import { PageLoader } from '@/components/ui/loader'
 import { StatusBadge } from '@/components/ui/status-badge'
 
 const emptyForm = {
@@ -150,7 +151,7 @@ export function ProductsPage() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-[var(--color-muted)]">Loading products...</p>
+        <PageLoader />
       ) : products.length === 0 ? (
         <div className="rounded-lg border border-dashed border-[var(--color-border)] bg-white p-8 text-center">
           <p className="text-sm text-[var(--color-muted)]">No products found</p>

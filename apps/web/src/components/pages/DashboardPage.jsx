@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { apiFetch } from '@/lib/api-client'
 import { formatDateTime, isSameUtcDay } from '@/lib/utils'
+import { PageLoader } from '@/components/ui/loader'
 
 export function DashboardPage() {
   const [inventoryCount, setInventoryCount] = useState(null)
@@ -80,7 +81,7 @@ export function DashboardPage() {
           </Link>
         </div>
         {isLoading ? (
-          <p className="p-4 text-sm text-[var(--color-muted)]">Loading...</p>
+          <PageLoader className="p-4" />
         ) : recentTransactions.length === 0 ? (
           <p className="p-4 text-sm text-[var(--color-muted)]">No transactions yet</p>
         ) : (

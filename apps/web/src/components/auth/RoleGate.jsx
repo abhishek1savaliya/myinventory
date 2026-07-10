@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/use-auth'
 import { orgDashboardPath } from '@/lib/org-paths'
+import { PageLoader } from '@/components/ui/loader'
 
 export function RoleGate({ roles, children }) {
   const { hasRole, isLoading, user } = useAuth()
@@ -16,7 +17,7 @@ export function RoleGate({ roles, children }) {
   }, [isLoading, hasRole, roles, router, user])
 
   if (isLoading || !hasRole(...roles)) {
-    return null
+    return isLoading ? <PageLoader /> : null
   }
 
   return children

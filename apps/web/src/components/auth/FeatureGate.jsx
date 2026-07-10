@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/use-auth'
 import { orgDashboardPath } from '@/lib/org-paths'
+import { PageLoader } from '@/components/ui/loader'
 
 export function FeatureGate({ feature, children }) {
   const { hasFeature, isLoading, user } = useAuth()
@@ -16,7 +17,7 @@ export function FeatureGate({ feature, children }) {
   }, [isLoading, hasFeature, feature, router, user])
 
   if (isLoading || !hasFeature(feature)) {
-    return null
+    return isLoading ? <PageLoader /> : null
   }
 
   return children

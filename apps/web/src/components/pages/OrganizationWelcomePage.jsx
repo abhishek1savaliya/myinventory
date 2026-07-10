@@ -9,6 +9,7 @@ import { orgDashboardPath, orgLoginPath } from '@/lib/org-paths'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { CopyableValue } from '@/components/ui/copyable-value'
+import { PageLoader } from '@/components/ui/loader'
 
 function getAppOrigin() {
   if (typeof window === 'undefined') return ''
@@ -25,7 +26,7 @@ export function OrganizationWelcomePage() {
   const dashboardUrl = origin ? `${origin}${orgDashboardPath(orgSlug)}` : orgDashboardPath(orgSlug)
 
   if (!org) {
-    return <p className="text-sm text-[var(--color-muted)]">Loading organization details...</p>
+    return <PageLoader />
   }
 
   const isOwner = isOrganizationOwner(user)

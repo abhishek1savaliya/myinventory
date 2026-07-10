@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api-client'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { PageLoader } from '@/components/ui/loader'
 
 export function InventoryPage() {
   const [items, setItems] = useState([])
@@ -60,7 +61,7 @@ export function InventoryPage() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-[var(--color-muted)]">Loading inventory...</p>
+        <PageLoader />
       ) : items.length === 0 ? (
         <div className="rounded-lg border border-dashed border-[var(--color-border)] bg-white p-8 text-center">
           <p className="text-sm text-[var(--color-muted)]">No inventory records found</p>

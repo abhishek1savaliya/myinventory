@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog } from '@/components/ui/dialog'
 import { StatusBadge } from '@/components/ui/status-badge'
+import { PageLoader } from '@/components/ui/loader'
 import { UserFeaturesDialog } from '@/components/users/UserFeaturesDialog'
 import { UserRoleDialog } from '@/components/users/UserRoleDialog'
 import { formatDate } from '@/lib/utils'
@@ -207,7 +208,7 @@ export function UsersPage() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-[var(--color-muted)]">Loading users...</p>
+        <PageLoader />
       ) : (
         <div className="space-y-8">
           <section>

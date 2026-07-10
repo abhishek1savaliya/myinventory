@@ -21,7 +21,7 @@
     "push": "dotenv -e ../../.env -- prisma db push --schema ./schema.prisma",
     "execute:access-logs": "dotenv -e ../../.env -- prisma db execute --file ./migrations/20260704130200_api_access_logs/migration.sql --schema ./schema.prisma",
     "execute:disable-requests": "dotenv -e ../../.env -- prisma db execute --file ./migrations/20260704130700_user_disable_requests/migration.sql --schema ./schema.prisma",
-    "migrate:deploy": "node ./scripts/migrate-deploy.mjs",
+    "migrate:deploy": "dotenv -e ../../.env -- node ./scripts/migrate-deploy.mjs",
     "seed": "dotenv -e ../../.env -- tsx seed.ts",
     "studio": "dotenv -e ../../.env -- prisma studio --schema ./schema.prisma",
     "check": "dotenv -e ../../.env -- tsx scripts/check-connection.ts"
