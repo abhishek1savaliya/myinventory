@@ -29,6 +29,11 @@ function getAudioContext() {
   return audioContext
 }
 
+/** Warm up audio after a user gesture (required on mobile). */
+export function initChatAudio() {
+  getAudioContext()
+}
+
 export function playChatNotificationSound() {
   try {
     if (!getStoredChatSoundEnabled()) return
@@ -51,8 +56,9 @@ export function playChatNotificationSound() {
       oscillator.stop(start + duration + 0.02)
     }
 
-    playTone(880, now, 0.12, 0.08)
-    playTone(1174, now + 0.12, 0.14, 0.09)
+    playTone(740, now, 0.1, 0.1)
+    playTone(988, now + 0.1, 0.12, 0.11)
+    playTone(1174, now + 0.22, 0.16, 0.1)
   } catch {
     // Audio may be blocked until user interaction
   }

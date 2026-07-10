@@ -6,7 +6,7 @@ import { io } from 'socket.io-client'
 import { AppFeature } from '@myinventory/shared'
 import { API_BASE_URL, apiFetch } from '@/lib/api-client'
 import { getStoredSessionId } from '@/lib/auth-storage'
-import { playChatNotificationSound } from '@/lib/chat-sound'
+import { initChatAudio, playChatNotificationSound } from '@/lib/chat-sound'
 import { useAuth } from '@/contexts/use-auth'
 import { ChatContext } from './chat-context'
 
@@ -44,6 +44,7 @@ export function ChatProvider({ children }) {
   const socketRef = useRef(null)
   const activePartnerRef = useRef(null)
   const isOnChatPageRef = useRef(false)
+  const userIdRef = useRef(user?.id)
 
   const [isConnected, setIsConnected] = useState(false)
   const [chatUsers, setChatUsers] = useState([])
@@ -55,6 +56,8 @@ export function ChatProvider({ children }) {
   const [totalUnread, setTotalUnread] = useState(0)
   const [liveUserIds, setLiveUserIds] = useState(() => new Set())
 
+  userIdRef.current = user?.id
+
   const canUseChat = Boolean(user && hasFeature(AppFeature.CHAT))
   const isChatRoute = pathname?.includes('/chat') ?? false
 
@@ -63,11 +66,21 @@ export function ChatProvider({ children }) {
     setActivePartnerIdState(partnerId)
   }, [])
 
-  const setChatPageActive = useCallback((active) => {
-    isOnChatPageRef.current = active
-    setIsOnChatPage(active)
-    socketRef.current?.emit('chat:presence', { inChat: active })
+  const emitPresence = useCallback((inChat) => {
+    const socket = socketRef.current
+    if (socket?.connected) {
+      socket.emit('chat:presence', { inChat })
+    }
   }, [])
+
+  const setChatPageActive = useCallback(
+    (active) => {
+      isOnChatPageRef.current = active
+      setIsOnChatPage(active)
+      emitPresence(active)
+    },
+    [emitPresence],
+  )
 
   const isUserLive = useCallback(
     (userId) => {
@@ -128,23 +141,24 @@ export function ChatProvider({ children }) {
         await apiFetch(`/api/chat/messages/${partnerId}/read`, { method: 'POST' })
       }
 
-      setConversations((prev) =>
-        prev.map((item) =>
+      setConversations((prev) => {
+        const unread = prev.find((item) => item.partnerId === partnerId)?.unreadCount ?? 0
+        if (unread > 0) {
+          setTotalUnread((total) => Math.max(0, total - unread))
+        }
+        return prev.map((item) =>
           item.partnerId === partnerId ? { ...item, unreadCount: 0 } : item,
-        ),
-      )
-      setTotalUnread((prev) => {
-        const conversation = conversations.find((item) => item.partnerId === partnerId)
-        return Math.max(0, prev - (conversation?.unreadCount ?? 0))
+        )
       })
       setNotifications((prev) => prev.filter((item) => item.partnerId !== partnerId))
     },
-    [canUseChat, conversations],
+    [canUseChat],
   )
 
   const appendMessage = useCallback((message) => {
+    const currentUserId = userIdRef.current
     const partnerId =
-      message.senderId === user?.id ? message.recipientId : message.senderId
+      message.senderId === currentUserId ? message.recipientId : message.senderId
 
     setMessagesByPartner((prev) => {
       const existing = prev[partnerId] ?? []
@@ -159,14 +173,14 @@ export function ChatProvider({ children }) {
 
     setConversations((prev) => {
       const partner =
-        message.senderId === user?.id
+        message.senderId === currentUserId
           ? { id: message.recipientId, name: message.recipientName ?? 'User' }
           : { id: message.senderId, name: message.senderName ?? 'User' }
 
       const next = prev.filter((item) => item.partnerId !== partnerId)
       const previous = prev.find((item) => item.partnerId === partnerId)
       const unreadCount =
-        message.recipientId === user?.id &&
+        message.recipientId === currentUserId &&
         message.senderId === partnerId &&
         !(isOnChatPageRef.current && activePartnerRef.current === partnerId)
           ? (previous?.unreadCount ?? 0) + 1
@@ -184,13 +198,14 @@ export function ChatProvider({ children }) {
         ...next,
       ]
     })
-  }, [user?.id])
+  }, [])
 
   const handleIncomingMessage = useCallback(
     (message) => {
       appendMessage(message)
 
-      const isIncoming = message.recipientId === user?.id
+      const currentUserId = userIdRef.current
+      const isIncoming = message.recipientId === currentUserId
       const partnerId = isIncoming ? message.senderId : message.recipientId
       const viewingConversation =
         isOnChatPageRef.current && activePartnerRef.current === partnerId
@@ -208,10 +223,22 @@ export function ChatProvider({ children }) {
       }
 
       if (isIncoming && viewingConversation) {
-        void markConversationRead(partnerId)
+        const socket = socketRef.current
+        if (socket?.connected) {
+          socket.emit('chat:mark-read', { partnerId })
+        } else {
+          void apiFetch(`/api/chat/messages/${partnerId}/read`, { method: 'POST' })
+        }
+
+        setConversations((prev) =>
+          prev.map((item) =>
+            item.partnerId === partnerId ? { ...item, unreadCount: 0 } : item,
+          ),
+        )
+        setNotifications((prev) => prev.filter((item) => item.partnerId !== partnerId))
       }
     },
-    [appendMessage, markConversationRead, user?.id],
+    [appendMessage],
   )
 
   const sendMessage = useCallback(
@@ -251,6 +278,14 @@ export function ChatProvider({ children }) {
     setNotifications([])
   }, [])
 
+  const refreshConversationsRef = useRef(refreshConversations)
+  const refreshUsersRef = useRef(refreshUsers)
+  const handleIncomingMessageRef = useRef(handleIncomingMessage)
+
+  refreshConversationsRef.current = refreshConversations
+  refreshUsersRef.current = refreshUsers
+  handleIncomingMessageRef.current = handleIncomingMessage
+
   useEffect(() => {
     if (!canUseChat || !API_BASE_URL) {
       setIsConnected(false)
@@ -265,45 +300,65 @@ export function ChatProvider({ children }) {
       auth: { sessionId },
       transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionAttempts: 10,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
     })
 
     socketRef.current = socket
 
-    socket.on('connect', () => {
+    const onConnect = () => {
       setIsConnected(true)
       if (isOnChatPageRef.current) {
         socket.emit('chat:presence', { inChat: true })
       }
-      void refreshConversations()
-      void refreshUsers()
-    })
+      void refreshConversationsRef.current()
+      void refreshUsersRef.current()
+    }
 
-    socket.on('disconnect', () => {
+    const onDisconnect = () => {
       setIsConnected(false)
-    })
+    }
 
-    socket.on('chat:message', (message) => {
-      handleIncomingMessage(message)
-    })
+    const onMessage = (message) => {
+      handleIncomingMessageRef.current(message)
+    }
 
-    socket.on('chat:read', () => {
-      void refreshConversations()
-    })
+    const onRead = () => {
+      void refreshConversationsRef.current()
+    }
 
-    socket.on('chat:presence:sync', ({ liveUserIds: nextLiveUserIds }) => {
+    const onPresenceSync = ({ liveUserIds: nextLiveUserIds }) => {
       setLiveUserIds(new Set(Array.isArray(nextLiveUserIds) ? nextLiveUserIds : []))
-    })
+    }
+
+    socket.on('connect', onConnect)
+    socket.on('disconnect', onDisconnect)
+    socket.on('chat:message', onMessage)
+    socket.on('chat:read', onRead)
+    socket.on('chat:presence:sync', onPresenceSync)
+
+    if (socket.connected) {
+      onConnect()
+    }
 
     return () => {
+      socket.off('connect', onConnect)
+      socket.off('disconnect', onDisconnect)
+      socket.off('chat:message', onMessage)
+      socket.off('chat:read', onRead)
+      socket.off('chat:presence:sync', onPresenceSync)
+
       if (isOnChatPageRef.current) {
         socket.emit('chat:presence', { inChat: false })
       }
+
       socket.disconnect()
       socketRef.current = null
       setIsConnected(false)
     }
-  }, [canUseChat, handleIncomingMessage, refreshConversations, refreshUsers])
+  }, [canUseChat, user?.id])
 
   useEffect(() => {
     if (!canUseChat) {
@@ -322,6 +377,19 @@ export function ChatProvider({ children }) {
       setChatPageActive(false)
     }
   }, [isChatRoute, isOnChatPage, setChatPageActive])
+
+  useEffect(() => {
+    if (!canUseChat) return undefined
+
+    const warmUpAudio = () => {
+      initChatAudio()
+    }
+
+    document.addEventListener('pointerdown', warmUpAudio, { once: true })
+    return () => {
+      document.removeEventListener('pointerdown', warmUpAudio)
+    }
+  }, [canUseChat])
 
   const value = useMemo(
     () => ({

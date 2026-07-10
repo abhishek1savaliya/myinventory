@@ -18,7 +18,7 @@ export function ChatNotificationStack() {
       {notifications.map((notification) => (
         <div
           key={notification.partnerId}
-          className="pointer-events-auto overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg"
+          className="pointer-events-auto overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl ring-1 ring-black/5 transition-transform duration-300"
         >
           <div className="flex items-start gap-3 p-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] text-[var(--color-primary-foreground)]">

@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/use-auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { initChatAudio } from '@/lib/chat-sound'
 import { cn } from '@/lib/utils'
 
 function formatMessageTime(value) {
@@ -164,6 +165,7 @@ export function ChatPage() {
 
   useEffect(() => {
     setChatPageActive(true)
+    initChatAudio()
     void refreshUsers()
     void refreshConversations()
 
@@ -171,7 +173,9 @@ export function ChatPage() {
       setChatPageActive(false)
       setActivePartnerId(null)
     }
-  }, [refreshConversations, refreshUsers, setActivePartnerId, setChatPageActive])
+    // Mount/unmount only — socket presence must not thrash on data refresh
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (!requestedUserId) return
@@ -215,9 +219,23 @@ export function ChatPage() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">Chat</h1>
-          <p className="text-sm text-[var(--color-muted)]">
+          <p className="flex items-center gap-2 text-sm text-[var(--color-muted)]">
             Message teammates in your organization
-            {isConnected ? ' · Live' : ' · Reconnecting…'}
+            <span
+              className={cn(
+                'inline-flex items-center gap-1.5 text-xs font-medium',
+                isConnected ? 'text-emerald-600' : 'text-amber-600',
+              )}
+            >
+              <span
+                className={cn(
+                  'h-2 w-2 rounded-full',
+                  isConnected ? 'bg-emerald-500' : 'animate-pulse bg-amber-500',
+                )}
+                aria-hidden
+              />
+              {isConnected ? 'Connected' : 'Reconnecting…'}
+            </span>
           </p>
         </div>
         <div className="hidden items-center gap-2 rounded-full border border-[var(--color-border)] px-3 py-1.5 text-xs text-[var(--color-muted)] sm:flex">
