@@ -4,6 +4,11 @@ import type { ChatConversationSummary, ChatMessageDto, ChatUserSummary } from '@
 export function mapChatMessageToDto(
   message: ChatMessage & {
     deliveredAt?: Date | null
+    attachmentType?: string | null
+    attachmentUrl?: string | null
+    attachmentName?: string | null
+    attachmentMimeType?: string | null
+    attachmentSize?: number | null
     sender?: { name: string }
     recipient?: { name: string }
   },
@@ -16,6 +21,11 @@ export function mapChatMessageToDto(
     createdAt: message.createdAt.toISOString(),
     deliveredAt: message.deliveredAt?.toISOString() ?? null,
     readAt: message.readAt?.toISOString() ?? null,
+    attachmentType: (message.attachmentType as ChatMessageDto['attachmentType']) ?? null,
+    attachmentUrl: message.attachmentUrl ?? null,
+    attachmentName: message.attachmentName ?? null,
+    attachmentMimeType: message.attachmentMimeType ?? null,
+    attachmentSize: message.attachmentSize ?? null,
     senderName: message.sender?.name,
     recipientName: message.recipient?.name,
   }

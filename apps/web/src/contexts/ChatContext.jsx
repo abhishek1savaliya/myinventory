@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { io } from 'socket.io-client'
-import { AppFeature } from '@myinventory/shared'
-import { API_BASE_URL, apiFetch } from '@/lib/api-client'
+import { AppFeature, getChatMessagePreview } from '@myinventory/shared'
+import { API_BASE_URL, apiFetch, apiUploadFormData } from '@/lib/api-client'
 import { getStoredSessionId } from '@/lib/auth-storage'
 import { initChatAudio, playChatIncomingSound, playChatSentSound } from '@/lib/chat-sound'
+import { classifyChatFile } from '@/lib/chat-attachment'
 import { useAuth } from '@/contexts/use-auth'
 import { ChatContext } from './chat-context'
 
@@ -205,6 +206,11 @@ export function ChatProvider({ children }) {
       ...confirmed,
       deliveredAt: confirmed.deliveredAt ?? null,
       readAt: confirmed.readAt ?? null,
+      attachmentType: confirmed.attachmentType ?? null,
+      attachmentUrl: confirmed.attachmentUrl ?? null,
+      attachmentName: confirmed.attachmentName ?? null,
+      attachmentMimeType: confirmed.attachmentMimeType ?? null,
+      attachmentSize: confirmed.attachmentSize ?? null,
       clientStatus: 'sent',
     }
 
@@ -282,7 +288,7 @@ export function ChatProvider({ children }) {
           upsertNotification(prev, {
             partnerId: message.senderId,
             partnerName: message.senderName ?? 'User',
-            preview: message.body,
+            preview: getChatMessagePreview(message),
           }),
         )
       }
@@ -324,6 +330,11 @@ export function ChatProvider({ children }) {
         createdAt: new Date().toISOString(),
         deliveredAt: null,
         readAt: null,
+        attachmentType: null,
+        attachmentUrl: null,
+        attachmentName: null,
+        attachmentMimeType: null,
+        attachmentSize: null,
         clientStatus: 'sending',
       }
 
@@ -353,6 +364,59 @@ export function ChatProvider({ children }) {
         replaceOptimisticMessage(recipientId, clientId, response.data)
         return response.data
       } catch (error) {
+        markOptimisticFailed(recipientId, clientId)
+        throw error
+      }
+    },
+    [appendMessage, canUseChat, markOptimisticFailed, replaceOptimisticMessage],
+  )
+
+  const sendChatAttachment = useCallback(
+    async (recipientId, file, { body = '', onProgress } = {}) => {
+      const currentUserId = userIdRef.current
+
+      if (!canUseChat || !recipientId || !file || !currentUserId) {
+        return null
+      }
+
+      const clientId = `temp-${crypto.randomUUID()}`
+      const previewUrl = URL.createObjectURL(file)
+      const optimistic = {
+        id: clientId,
+        senderId: currentUserId,
+        recipientId,
+        body: body.trim(),
+        createdAt: new Date().toISOString(),
+        deliveredAt: null,
+        readAt: null,
+        attachmentType: classifyChatFile(file),
+        attachmentUrl: previewUrl,
+        attachmentName: file.name,
+        attachmentMimeType: file.type || 'application/octet-stream',
+        attachmentSize: file.size,
+        clientStatus: 'sending',
+      }
+
+      appendMessage(optimistic)
+      playChatSentSound()
+
+      const formData = new FormData()
+      formData.append('file', file)
+      if (body.trim()) {
+        formData.append('body', body.trim())
+      }
+
+      try {
+        const response = await apiUploadFormData(
+          `/api/chat/messages/${recipientId}/attachment`,
+          formData,
+          onProgress,
+        )
+        URL.revokeObjectURL(previewUrl)
+        replaceOptimisticMessage(recipientId, clientId, response.data)
+        return response.data
+      } catch (error) {
+        URL.revokeObjectURL(previewUrl)
         markOptimisticFailed(recipientId, clientId)
         throw error
       }
@@ -521,6 +585,7 @@ export function ChatProvider({ children }) {
       loadMessages,
       markConversationRead,
       sendMessage,
+      sendChatAttachment,
       dismissNotification,
       clearNotifications,
     }),
@@ -544,6 +609,7 @@ export function ChatProvider({ children }) {
       loadMessages,
       markConversationRead,
       sendMessage,
+      sendChatAttachment,
       dismissNotification,
       clearNotifications,
     ],

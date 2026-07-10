@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { MessageCircle, Send, Users } from 'lucide-react'
+import { MessageCircle, Paperclip, Send, Users } from 'lucide-react'
+import { getChatMessagePreview } from '@myinventory/shared'
 import { MessageStatusTicks } from '@/components/chat/MessageStatusTicks'
+import { ChatMessageContent } from '@/components/chat/ChatMessageContent'
+import { validateChatFile } from '@/lib/chat-attachment'
 import { useChat } from '@/contexts/use-chat'
 import { useAuth } from '@/contexts/use-auth'
 import { Button } from '@/components/ui/button'
@@ -86,8 +89,10 @@ export function ChatPage() {
   const { user } = useAuth()
   const searchParams = useSearchParams()
   const messagesEndRef = useRef(null)
+  const fileInputRef = useRef(null)
   const [draft, setDraft] = useState('')
   const [sendError, setSendError] = useState(null)
+  const [uploadProgress, setUploadProgress] = useState(null)
   const [showUsersOnMobile, setShowUsersOnMobile] = useState(true)
 
   const {
@@ -104,6 +109,7 @@ export function ChatPage() {
     loadMessages,
     markConversationRead,
     sendMessage,
+    sendChatAttachment,
     dismissNotification,
     isUserLive,
   } = useChat()
@@ -122,7 +128,9 @@ export function ChatPage() {
       merged.set(chatUser.id, {
         ...chatUser,
         unreadCount: conversation?.unreadCount ?? 0,
-        subtitle: conversation?.lastMessage?.body ?? chatUser.email,
+        subtitle: conversation?.lastMessage
+          ? getChatMessagePreview(conversation.lastMessage)
+          : chatUser.email,
         lastMessageAt: conversation?.lastMessage?.createdAt ?? null,
       })
     }
@@ -135,7 +143,9 @@ export function ChatPage() {
         email: conversation.partnerEmail,
         role: conversation.partnerRole,
         unreadCount: conversation.unreadCount,
-        subtitle: conversation.lastMessage?.body ?? conversation.partnerEmail,
+        subtitle: conversation.lastMessage
+          ? getChatMessagePreview(conversation.lastMessage)
+          : conversation.partnerEmail,
         lastMessageAt: conversation.lastMessage?.createdAt ?? null,
       })
     }
@@ -197,6 +207,43 @@ export function ChatPage() {
     void sendMessage(activePartnerId, text).catch((error) => {
       setSendError(error instanceof Error ? error.message : 'Could not send message')
     })
+  }
+
+  function handleAttachClick() {
+    fileInputRef.current?.click()
+  }
+
+  function handleFileChange(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+
+    if (!file || !activePartnerId) return
+
+    const validationError = validateChatFile(file)
+    if (validationError) {
+      setSendError(validationError)
+      return
+    }
+
+    setSendError(null)
+    setUploadProgress(0)
+
+    void sendChatAttachment(activePartnerId, file, {
+      body: draft.trim(),
+      onProgress: (loaded, total) => {
+        if (total > 0) {
+          setUploadProgress(Math.round((loaded / total) * 100))
+        }
+      },
+    })
+      .then(() => {
+        setDraft('')
+        setUploadProgress(null)
+      })
+      .catch((error) => {
+        setUploadProgress(null)
+        setSendError(error instanceof Error ? error.message : 'Could not upload file')
+      })
   }
 
   if (!canUseChat) {
@@ -333,7 +380,7 @@ export function ChatPage() {
                                 : 'rounded-bl-md border border-[var(--color-border)] bg-white text-gray-900',
                             )}
                           >
-                            <p className="whitespace-pre-wrap break-words">{message.body}</p>
+                            <ChatMessageContent message={message} isMine={isMine} />
                             <div
                               className={cn(
                                 'mt-1 flex items-center justify-end gap-1 text-[10px]',
@@ -355,17 +402,48 @@ export function ChatPage() {
                   onSubmit={handleSend}
                   className="border-t border-[var(--color-border)] p-4"
                 >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z"
+                    onChange={handleFileChange}
+                  />
                   {sendError && (
                     <p className="mb-2 text-sm text-red-600">{sendError}</p>
                   )}
+                  {uploadProgress !== null && (
+                    <div className="mb-3">
+                      <div className="mb-1 flex justify-between text-xs text-[var(--color-muted)]">
+                        <span>Uploading…</span>
+                        <span>{uploadProgress}%</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-gray-200">
+                        <div
+                          className="h-full rounded-full bg-[var(--color-primary)] transition-all"
+                          style={{ width: `${uploadProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
                   <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleAttachClick}
+                      disabled={!activePartnerId || uploadProgress !== null}
+                      aria-label="Attach image, video, or file"
+                    >
+                      <Paperclip className="h-4 w-4" />
+                    </Button>
                     <Input
                       value={draft}
                       onChange={(event) => setDraft(event.target.value)}
                       placeholder={`Message ${activeUser?.name ?? 'user'}…`}
                       maxLength={4000}
+                      disabled={uploadProgress !== null}
                     />
-                    <Button type="submit" disabled={!draft.trim()}>
+                    <Button type="submit" disabled={!draft.trim() || uploadProgress !== null}>
                       <Send className="h-4 w-4" />
                       Send
                     </Button>

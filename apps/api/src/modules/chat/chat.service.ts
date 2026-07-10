@@ -1,5 +1,6 @@
 import { prisma } from '@myinventory/prisma'
 import type { ChatConversationSummary, ChatMessageDto } from '@myinventory/shared'
+import { uploadChatAttachment } from '../../lib/chat-attachments.js'
 import { AppError } from '../../middleware/error-handler.js'
 import {
   mapChatMessageToDto,
@@ -140,6 +141,56 @@ export async function sendChatMessage(
       senderId,
       recipientId,
       body,
+    },
+    include: messageInclude,
+  })
+
+  return mapChatMessageToDto(message)
+}
+
+export async function sendChatAttachmentMessage(
+  orgId: string,
+  senderId: string,
+  recipientId: string,
+  input: {
+    buffer: Buffer
+    mimeType: string
+    fileName: string
+    body?: string
+  },
+): Promise<ChatMessageDto> {
+  await assertChatPartner(orgId, recipientId, senderId)
+
+  const upload = await uploadChatAttachment({
+    organizationId: orgId,
+    buffer: input.buffer,
+    mimeType: input.mimeType,
+    fileName: input.fileName,
+  })
+
+  const caption = input.body?.trim() ?? ''
+
+  const message = await prisma.chatMessage.create({
+    data: {
+      organizationId: orgId,
+      senderId,
+      recipientId,
+      body: caption,
+      attachmentType: upload.type,
+      attachmentUrl: upload.url,
+      attachmentName: input.fileName,
+      attachmentMimeType: input.mimeType,
+      attachmentSize: upload.size,
+    } as {
+      organizationId: string
+      senderId: string
+      recipientId: string
+      body: string
+      attachmentType: string
+      attachmentUrl: string
+      attachmentName: string
+      attachmentMimeType: string
+      attachmentSize: number
     },
     include: messageInclude,
   })

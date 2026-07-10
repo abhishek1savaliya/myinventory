@@ -302,15 +302,26 @@ model UserDisableRequest {
   @@map("user_disable_requests")
 }
 
+enum ChatAttachmentType {
+  IMAGE
+  VIDEO
+  FILE
+}
+
 model ChatMessage {
-  id             String    @id @default(cuid())
-  organizationId String    @map("organization_id")
-  senderId       String    @map("sender_id")
-  recipientId    String    @map("recipient_id")
-  body           String
-  deliveredAt    DateTime? @map("delivered_at")
-  readAt         DateTime? @map("read_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
+  id                 String               @id @default(cuid())
+  organizationId     String               @map("organization_id")
+  senderId           String               @map("sender_id")
+  recipientId        String               @map("recipient_id")
+  body               String               @default("")
+  attachmentType     ChatAttachmentType?  @map("attachment_type")
+  attachmentUrl      String?              @map("attachment_url")
+  attachmentName     String?              @map("attachment_name")
+  attachmentMimeType String?              @map("attachment_mime_type")
+  attachmentSize     Int?                 @map("attachment_size")
+  deliveredAt        DateTime?            @map("delivered_at")
+  readAt             DateTime?            @map("read_at")
+  createdAt          DateTime             @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   sender       User         @relation("ChatSender", fields: [senderId], references: [id], onDelete: Restrict)

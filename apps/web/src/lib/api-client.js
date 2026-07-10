@@ -174,3 +174,50 @@ export function apiFetchJsonWithProgress(path, init, onUploadProgress) {
     xhr.send(body)
   })
 }
+
+/**
+ * Multipart upload with XMLHttpRequest progress (chat images, videos, files).
+ */
+export function apiUploadFormData(path, formData, onUploadProgress) {
+  if (!API_BASE_URL) {
+    return Promise.reject(
+      new ApiRequestError('NEXT_PUBLIC_API_URL is not configured', 0, undefined),
+    )
+  }
+
+  return new Promise((resolve, reject) => {
+    const sessionId = sessionGetter()
+    const xhr = new XMLHttpRequest()
+
+    xhr.open('POST', `${API_BASE_URL}${path}`)
+    if (sessionId) {
+      xhr.setRequestHeader('X-Session-Id', sessionId)
+    }
+
+    if (onUploadProgress) {
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable) {
+          onUploadProgress(event.loaded, event.total)
+        }
+      })
+    }
+
+    xhr.addEventListener('load', () => {
+      try {
+        resolve(parseXhrResponse(xhr, sessionId))
+      } catch (error) {
+        reject(error)
+      }
+    })
+
+    xhr.addEventListener('error', () => {
+      reject(new ApiRequestError('Network error', 0, undefined))
+    })
+
+    xhr.addEventListener('abort', () => {
+      reject(new ApiRequestError('Upload aborted', 0, undefined))
+    })
+
+    xhr.send(formData)
+  })
+}

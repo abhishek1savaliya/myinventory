@@ -64,7 +64,14 @@ export type {
 } from './inventory.js'
 export type { UserDisableRequestDto } from './users.js'
 export type { ChatUserSummary, ChatMessageDto, ChatConversationSummary, ChatDeliveryStatus } from './chat.js'
-export { getChatDeliveryStatus } from './chat.js'
+export {
+  ChatAttachmentType,
+  CHAT_MAX_IMAGE_BYTES,
+  CHAT_MAX_VIDEO_BYTES,
+  CHAT_MAX_FILE_BYTES,
+  getChatDeliveryStatus,
+  getChatMessagePreview,
+} from './chat.js'
 export type {
   OrganizationBranding,
   OrganizationSummary,

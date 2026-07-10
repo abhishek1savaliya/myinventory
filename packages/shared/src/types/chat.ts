@@ -1,3 +1,13 @@
+export enum ChatAttachmentType {
+  IMAGE = 'IMAGE',
+  VIDEO = 'VIDEO',
+  FILE = 'FILE',
+}
+
+export const CHAT_MAX_IMAGE_BYTES = 6 * 1024 * 1024
+export const CHAT_MAX_VIDEO_BYTES = 100 * 1024 * 1024
+export const CHAT_MAX_FILE_BYTES = 10 * 1024 * 1024
+
 export interface ChatUserSummary {
   id: string
   name: string
@@ -13,6 +23,11 @@ export interface ChatMessageDto {
   createdAt: string
   deliveredAt: string | null
   readAt: string | null
+  attachmentType: ChatAttachmentType | null
+  attachmentUrl: string | null
+  attachmentName: string | null
+  attachmentMimeType: string | null
+  attachmentSize: number | null
   senderName?: string
   recipientName?: string
 }
@@ -27,6 +42,19 @@ export function getChatDeliveryStatus(
   if (message.readAt) return 'read'
   if (message.deliveredAt) return 'delivered'
   return 'sent'
+}
+
+export function getChatMessagePreview(message: ChatMessageDto): string {
+  const text = message.body?.trim()
+  if (text) return text
+
+  if (message.attachmentType === ChatAttachmentType.IMAGE) return 'Photo'
+  if (message.attachmentType === ChatAttachmentType.VIDEO) return 'Video'
+  if (message.attachmentType === ChatAttachmentType.FILE) {
+    return message.attachmentName ? `File: ${message.attachmentName}` : 'File'
+  }
+
+  return ''
 }
 
 export interface ChatConversationSummary {
