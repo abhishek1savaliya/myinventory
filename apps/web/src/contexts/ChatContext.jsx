@@ -53,6 +53,7 @@ export function ChatProvider({ children }) {
   const [isOnChatPage, setIsOnChatPage] = useState(false)
   const [notifications, setNotifications] = useState([])
   const [totalUnread, setTotalUnread] = useState(0)
+  const [liveUserIds, setLiveUserIds] = useState(() => new Set())
 
   const canUseChat = Boolean(user && hasFeature(AppFeature.CHAT))
   const isChatRoute = pathname?.includes('/chat') ?? false
@@ -65,7 +66,16 @@ export function ChatProvider({ children }) {
   const setChatPageActive = useCallback((active) => {
     isOnChatPageRef.current = active
     setIsOnChatPage(active)
+    socketRef.current?.emit('chat:presence', { inChat: active })
   }, [])
+
+  const isUserLive = useCallback(
+    (userId) => {
+      if (!userId) return false
+      return liveUserIds.has(userId)
+    },
+    [liveUserIds],
+  )
 
   const refreshConversations = useCallback(async () => {
     if (!canUseChat) return
@@ -262,6 +272,9 @@ export function ChatProvider({ children }) {
 
     socket.on('connect', () => {
       setIsConnected(true)
+      if (isOnChatPageRef.current) {
+        socket.emit('chat:presence', { inChat: true })
+      }
       void refreshConversations()
       void refreshUsers()
     })
@@ -278,7 +291,14 @@ export function ChatProvider({ children }) {
       void refreshConversations()
     })
 
+    socket.on('chat:presence:sync', ({ liveUserIds: nextLiveUserIds }) => {
+      setLiveUserIds(new Set(Array.isArray(nextLiveUserIds) ? nextLiveUserIds : []))
+    })
+
     return () => {
+      if (isOnChatPageRef.current) {
+        socket.emit('chat:presence', { inChat: false })
+      }
       socket.disconnect()
       socketRef.current = null
       setIsConnected(false)
@@ -293,6 +313,7 @@ export function ChatProvider({ children }) {
       setNotifications([])
       setTotalUnread(0)
       setActivePartnerId(null)
+      setLiveUserIds(new Set())
     }
   }, [canUseChat, setActivePartnerId])
 
@@ -313,9 +334,11 @@ export function ChatProvider({ children }) {
       isOnChatPage,
       notifications,
       totalUnread,
+      liveUserIds,
       isChatRoute,
       setActivePartnerId,
       setChatPageActive,
+      isUserLive,
       refreshUsers,
       refreshConversations,
       loadMessages,
@@ -334,9 +357,11 @@ export function ChatProvider({ children }) {
       isOnChatPage,
       notifications,
       totalUnread,
+      liveUserIds,
       isChatRoute,
       setActivePartnerId,
       setChatPageActive,
+      isUserLive,
       refreshUsers,
       refreshConversations,
       loadMessages,

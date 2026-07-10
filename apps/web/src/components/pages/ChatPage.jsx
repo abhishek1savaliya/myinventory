@@ -15,7 +15,41 @@ function formatMessageTime(value) {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-function UserListItem({ user, isActive, unreadCount, subtitle, onSelect }) {
+function PresenceStatus({ isLive }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5 text-[11px] font-medium',
+        isLive ? 'text-emerald-600' : 'text-red-500',
+      )}
+    >
+      <span
+        className={cn('h-2 w-2 shrink-0 rounded-full', isLive ? 'bg-emerald-500' : 'bg-red-500')}
+        aria-hidden
+      />
+      {isLive ? 'Live' : 'Offline'}
+    </span>
+  )
+}
+
+function UserAvatar({ name, isLive }) {
+  return (
+    <div className="relative shrink-0">
+      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-primary)] text-sm font-semibold text-[var(--color-primary-foreground)]">
+        {name.charAt(0).toUpperCase()}
+      </div>
+      <span
+        className={cn(
+          'absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white',
+          isLive ? 'bg-emerald-500' : 'bg-red-500',
+        )}
+        aria-hidden
+      />
+    </div>
+  )
+}
+
+function UserListItem({ user, isActive, isLive, unreadCount, subtitle, onSelect }) {
   return (
     <button
       type="button"
@@ -27,9 +61,7 @@ function UserListItem({ user, isActive, unreadCount, subtitle, onSelect }) {
           : 'border-transparent hover:bg-gray-50',
       )}
     >
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] text-sm font-semibold text-[var(--color-primary-foreground)]">
-        {user.name.charAt(0).toUpperCase()}
-      </div>
+      <UserAvatar name={user.name} isLive={isLive} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
           <p className="truncate text-sm font-medium text-gray-900">{user.name}</p>
@@ -39,7 +71,10 @@ function UserListItem({ user, isActive, unreadCount, subtitle, onSelect }) {
             </span>
           )}
         </div>
-        <p className="truncate text-xs text-[var(--color-muted)]">{subtitle}</p>
+        <div className="mt-0.5 flex items-center justify-between gap-2">
+          <p className="truncate text-xs text-[var(--color-muted)]">{subtitle}</p>
+          <PresenceStatus isLive={isLive} />
+        </div>
       </div>
     </button>
   )
@@ -69,6 +104,7 @@ export function ChatPage() {
     markConversationRead,
     sendMessage,
     dismissNotification,
+    isUserLive,
   } = useChat()
 
   const requestedUserId = searchParams.get('user')
@@ -215,6 +251,7 @@ export function ChatPage() {
                   key={chatUser.id}
                   user={chatUser}
                   isActive={chatUser.id === activePartnerId}
+                  isLive={isUserLive(chatUser.id)}
                   unreadCount={chatUser.unreadCount}
                   subtitle={chatUser.subtitle}
                   onSelect={selectPartner}
@@ -252,7 +289,10 @@ export function ChatPage() {
                   </Button>
                   <div className="min-w-0">
                     <CardTitle className="truncate text-base">{activeUser?.name}</CardTitle>
-                    <CardDescription className="truncate">{activeUser?.email}</CardDescription>
+                    <div className="flex items-center gap-2">
+                      <CardDescription className="truncate">{activeUser?.email}</CardDescription>
+                      <PresenceStatus isLive={isUserLive(activePartnerId)} />
+                    </div>
                   </div>
                 </div>
               </CardHeader>

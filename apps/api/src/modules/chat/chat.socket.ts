@@ -17,10 +17,51 @@ interface ChatSocketUser {
 interface ChatSocket extends Socket {
   data: {
     user: ChatSocketUser
+    inChat?: boolean
   }
 }
 
 let chatIo: Server | null = null
+const presenceCounts = new Map<string, Map<string, number>>()
+
+function changeChatPresence(orgId: string, userId: string, delta: number): string[] {
+  if (!presenceCounts.has(orgId)) {
+    presenceCounts.set(orgId, new Map())
+  }
+
+  const orgPresence = presenceCounts.get(orgId)!
+  const current = orgPresence.get(userId) ?? 0
+  const next = Math.max(0, current + delta)
+
+  if (next === 0) {
+    orgPresence.delete(userId)
+  } else {
+    orgPresence.set(userId, next)
+  }
+
+  return [...orgPresence.keys()]
+}
+
+function getLiveUserIds(orgId: string): string[] {
+  return [...(presenceCounts.get(orgId)?.keys() ?? [])]
+}
+
+function broadcastPresence(orgId: string): void {
+  if (!chatIo) return
+  chatIo.to(`org:${orgId}`).emit('chat:presence:sync', {
+    liveUserIds: getLiveUserIds(orgId),
+  })
+}
+
+function setSocketChatPresence(socket: ChatSocket, inChat: boolean): void {
+  const user = socket.data.user
+  const wasInChat = socket.data.inChat ?? false
+  if (wasInChat === inChat) return
+
+  socket.data.inChat = inChat
+  changeChatPresence(user.orgId, user.sub, inChat ? 1 : -1)
+  broadcastPresence(user.orgId)
+}
 
 export function initChatSocket(httpServer: HttpServer): Server {
   chatIo = new Server(httpServer, {
@@ -89,8 +130,23 @@ export function initChatSocket(httpServer: HttpServer): Server {
 
   chatIo.on('connection', (socket: ChatSocket) => {
     const user = socket.data.user
+    socket.data.inChat = false
     void socket.join(`user:${user.sub}`)
     void socket.join(`org:${user.orgId}`)
+
+    socket.emit('chat:presence:sync', { liveUserIds: getLiveUserIds(user.orgId) })
+
+    socket.on('chat:presence', (payload) => {
+      if (!payload || typeof payload.inChat !== 'boolean') return
+      setSocketChatPresence(socket, payload.inChat)
+    })
+
+    socket.on('disconnect', () => {
+      if (socket.data.inChat) {
+        changeChatPresence(user.orgId, user.sub, -1)
+        broadcastPresence(user.orgId)
+      }
+    })
 
     socket.on('chat:send', async (payload, ack) => {
       try {
