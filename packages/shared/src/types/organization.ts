@@ -1,4 +1,10 @@
-export interface OrganizationSummary {
+export interface OrganizationBranding {
+  logoUrl: string | null
+  loginBackgroundUrl: string | null
+  themeColor: string | null
+}
+
+export interface OrganizationSummary extends OrganizationBranding {
   id: string
   orgCode: string
   slug: string
@@ -16,7 +22,7 @@ export interface OrganizationSignupResponse {
   ownerEmail: string
 }
 
-export interface OrganizationPublicProfile {
+export interface OrganizationPublicProfile extends OrganizationBranding {
   slug: string
   name: string
   tradingName: string

@@ -11,6 +11,7 @@ import {
 } from './modules/access-logs/access-logs.service.js'
 import { ensureSessionBucket } from './lib/session-storage.js'
 import { ensureProductImagesBucket } from './lib/product-images.js'
+import { ensureOrgBrandingBucket } from './lib/org-branding.js'
 import { checkRedisConnection } from './lib/redis.js'
 
 const app = express()
@@ -34,6 +35,8 @@ async function startServer(): Promise<void> {
     console.log('[MyInventory API] Supabase session storage ready')
     await ensureProductImagesBucket()
     console.log('[MyInventory API] Supabase product-images storage ready')
+    await ensureOrgBrandingBucket()
+    console.log('[MyInventory API] Supabase org-branding storage ready')
     await checkRedisConnection()
     console.log('[MyInventory API] Redis cache connected')
   } catch (error) {

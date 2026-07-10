@@ -1,4 +1,10 @@
-import type { OrganizationPublicProfile, OrganizationSignupInput, OrganizationSignupResponse } from '@myinventory/shared'
+import type {
+  OrganizationBranding,
+  OrganizationBrandingUpdateInput,
+  OrganizationPublicProfile,
+  OrganizationSignupInput,
+  OrganizationSignupResponse,
+} from '@myinventory/shared'
 import {
   UserRole,
   buildOrgCode,
@@ -8,7 +14,11 @@ import {
 import bcrypt from 'bcryptjs'
 import { prisma } from '@myinventory/prisma'
 import { AppError } from '../../middleware/error-handler.js'
-import { mapOrganizationToSummary } from './organization.mapper.js'
+import {
+  deleteOrgBrandingFromUrls,
+  uploadOrgBrandingImageFromBase64,
+} from '../../lib/org-branding.js'
+import { mapOrganizationToPublicProfile, mapOrganizationToSummary } from './organization.mapper.js'
 
 async function generateUniqueOrgCode(name: string): Promise<string> {
   for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -93,14 +103,97 @@ export async function signupOrganization(
 export async function getOrganizationPublicProfile(slug: string): Promise<OrganizationPublicProfile> {
   const organization = await prisma.organization.findUnique({
     where: { slug: slug.toLowerCase().trim() },
-    select: { slug: true, name: true, tradingName: true },
+    select: {
+      slug: true,
+      name: true,
+      tradingName: true,
+      logoUrl: true,
+      loginBackgroundUrl: true,
+      themeColor: true,
+    },
   })
 
   if (!organization) {
     throw new AppError(404, 'Organization not found')
   }
 
-  return organization
+  return mapOrganizationToPublicProfile(organization)
+}
+
+export async function updateOrganizationBranding(
+  organizationId: string,
+  ownerEmail: string,
+  input: OrganizationBrandingUpdateInput,
+): Promise<OrganizationBranding> {
+  const organization = await prisma.organization.findUnique({
+    where: { id: organizationId },
+    select: {
+      email: true,
+      logoUrl: true,
+      loginBackgroundUrl: true,
+      themeColor: true,
+    },
+  })
+
+  if (!organization) {
+    throw new AppError(404, 'Organization not found')
+  }
+
+  if (organization.email.toLowerCase() !== ownerEmail.toLowerCase().trim()) {
+    throw new AppError(403, 'Only the organization owner can customize the login page')
+  }
+
+  let logoUrl = organization.logoUrl
+  let loginBackgroundUrl = organization.loginBackgroundUrl
+  let themeColor = organization.themeColor
+
+  if (input.removeLogo && logoUrl) {
+    await deleteOrgBrandingFromUrls([logoUrl])
+    logoUrl = null
+  }
+
+  if (input.removeLoginBackground && loginBackgroundUrl) {
+    await deleteOrgBrandingFromUrls([loginBackgroundUrl])
+    loginBackgroundUrl = null
+  }
+
+  if (input.logoBase64) {
+    if (logoUrl) {
+      await deleteOrgBrandingFromUrls([logoUrl])
+    }
+    logoUrl = await uploadOrgBrandingImageFromBase64(organizationId, 'logo', input.logoBase64)
+  }
+
+  if (input.loginBackgroundBase64) {
+    if (loginBackgroundUrl) {
+      await deleteOrgBrandingFromUrls([loginBackgroundUrl])
+    }
+    loginBackgroundUrl = await uploadOrgBrandingImageFromBase64(
+      organizationId,
+      'background',
+      input.loginBackgroundBase64,
+    )
+  }
+
+  if (input.themeColor !== undefined) {
+    themeColor = input.themeColor
+  }
+
+  const updated = await prisma.organization.update({
+    where: { id: organizationId },
+    data: {
+      logoUrl,
+      loginBackgroundUrl,
+      themeColor,
+    },
+    select: {
+      logoUrl: true,
+      loginBackgroundUrl: true,
+      themeColor: true,
+    },
+  })
+
+  return updated
 }
 
 export async function findOrganizationByOrgCode(orgCode: string) {

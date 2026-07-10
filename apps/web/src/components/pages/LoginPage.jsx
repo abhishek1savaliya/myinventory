@@ -65,9 +65,28 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex h-full items-center justify-center bg-[var(--color-background)] p-4 sm:p-6">
-      <Card className="w-full max-w-md">
-        <CardHeader>
+    <div
+      className="flex h-full min-h-[100dvh] items-center justify-center p-4 sm:p-6"
+      style={{
+        ...(orgProfile?.loginBackgroundUrl
+          ? {
+              backgroundImage: `linear-gradient(rgba(248, 249, 251, 0.88), rgba(248, 249, 251, 0.92)), url(${orgProfile.loginBackgroundUrl})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+            }
+          : { backgroundColor: 'var(--color-background)' }),
+        ...(orgProfile?.themeColor ? { '--color-primary': orgProfile.themeColor } : {}),
+      }}
+    >
+      <Card className="w-full max-w-md shadow-lg">
+        <CardHeader className="text-center">
+          {orgProfile?.logoUrl && (
+            <img
+              src={orgProfile.logoUrl}
+              alt=""
+              className="mx-auto mb-4 h-16 w-auto max-w-[220px] object-contain"
+            />
+          )}
           <CardTitle>
             {orgProfile ? `Sign in to ${orgProfile.tradingName}` : 'Sign in to MyInventory'}
           </CardTitle>

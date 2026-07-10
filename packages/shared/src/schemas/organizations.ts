@@ -17,10 +17,36 @@ export const organizationSignupSchema = z.object({
 
 export type OrganizationSignupInput = z.infer<typeof organizationSignupSchema>
 
+const brandingImageBase64Schema = z.string().max(3_000_000, 'Image is too large')
+
+const themeColorSchema = z
+  .string()
+  .trim()
+  .regex(/^#[0-9A-Fa-f]{6}$/, 'Theme color must be a hex value like #1e3a5f')
+
+export const organizationBrandingUpdateSchema = z.object({
+  logoBase64: brandingImageBase64Schema.optional(),
+  loginBackgroundBase64: brandingImageBase64Schema.optional(),
+  themeColor: themeColorSchema.nullable().optional(),
+  removeLogo: z.boolean().optional(),
+  removeLoginBackground: z.boolean().optional(),
+})
+
+export type OrganizationBrandingUpdateInput = z.infer<typeof organizationBrandingUpdateSchema>
+
+export const organizationBrandingSchema = z.object({
+  logoUrl: z.string().url().nullable(),
+  loginBackgroundUrl: z.string().url().nullable(),
+  themeColor: themeColorSchema.nullable(),
+})
+
 export const organizationPublicProfileSchema = z.object({
   slug: z.string(),
   name: z.string(),
   tradingName: z.string(),
+  logoUrl: z.string().url().nullable(),
+  loginBackgroundUrl: z.string().url().nullable(),
+  themeColor: themeColorSchema.nullable(),
 })
 
 export const organizationSummarySchema = z.object({
@@ -32,6 +58,9 @@ export const organizationSummarySchema = z.object({
   ownerName: z.string(),
   email: z.string().email(),
   contactNumber: z.string(),
+  logoUrl: z.string().url().nullable(),
+  loginBackgroundUrl: z.string().url().nullable(),
+  themeColor: themeColorSchema.nullable(),
 })
 
 export const organizationSignupResponseSchema = z.object({

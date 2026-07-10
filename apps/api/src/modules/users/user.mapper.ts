@@ -19,6 +19,9 @@ type UserWithOrganization = User & {
     ownerName: string
     email: string
     contactNumber: string
+    logoUrl: string | null
+    loginBackgroundUrl: string | null
+    themeColor: string | null
   }
 }
 
@@ -53,6 +56,9 @@ export const userWithOrganizationInclude = {
       ownerName: true,
       email: true,
       contactNumber: true,
+      logoUrl: true,
+      loginBackgroundUrl: true,
+      themeColor: true,
     },
   },
 } as const

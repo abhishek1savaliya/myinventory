@@ -20,6 +20,7 @@ import { Label } from '@/components/ui/label'
 import { CopyableValue } from '@/components/ui/copyable-value'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
+import { LoginBrandingSettings } from '@/components/settings/LoginBrandingSettings'
 
 function SettingToggle({ id, label, description, checked, onChange, disabled = false }) {
   return (
@@ -158,6 +159,8 @@ export function SettingsPage() {
           </CardContent>
         </Card>
       )}
+
+      {isOwner && org && <LoginBrandingSettings org={org} />}
 
       <Card>
         <CardHeader>

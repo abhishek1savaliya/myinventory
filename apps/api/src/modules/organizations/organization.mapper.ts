@@ -1,4 +1,4 @@
-import type { OrganizationSummary } from '@myinventory/shared'
+import type { OrganizationPublicProfile, OrganizationSummary } from '@myinventory/shared'
 
 type OrganizationSummarySource = {
   id: string
@@ -9,6 +9,9 @@ type OrganizationSummarySource = {
   ownerName: string
   email: string
   contactNumber: string
+  logoUrl: string | null
+  loginBackgroundUrl: string | null
+  themeColor: string | null
 }
 
 export function mapOrganizationToSummary(org: OrganizationSummarySource): OrganizationSummary {
@@ -21,5 +24,19 @@ export function mapOrganizationToSummary(org: OrganizationSummarySource): Organi
     ownerName: org.ownerName,
     email: org.email,
     contactNumber: org.contactNumber,
+    logoUrl: org.logoUrl,
+    loginBackgroundUrl: org.loginBackgroundUrl,
+    themeColor: org.themeColor,
+  }
+}
+
+export function mapOrganizationToPublicProfile(org: OrganizationSummarySource): OrganizationPublicProfile {
+  return {
+    slug: org.slug,
+    name: org.name,
+    tradingName: org.tradingName,
+    logoUrl: org.logoUrl,
+    loginBackgroundUrl: org.loginBackgroundUrl,
+    themeColor: org.themeColor,
   }
 }

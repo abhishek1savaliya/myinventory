@@ -1,10 +1,13 @@
 import { Router } from 'express'
-import { organizationSignupSchema } from '@myinventory/shared'
+import { organizationBrandingUpdateSchema, organizationSignupSchema } from '@myinventory/shared'
 import { asyncHandler } from '../../utils/async-handler.js'
 import { validateBody } from '../../middleware/validate.js'
+import { authenticate, type AuthenticatedRequest } from '../../middleware/auth.js'
+import { requireOrgId } from '../../lib/org-context.js'
 import {
   getOrganizationPublicProfile,
   signupOrganization,
+  updateOrganizationBranding,
 } from './organizations.service.js'
 
 export const organizationsRouter = Router()
@@ -23,5 +26,17 @@ organizationsRouter.get(
   asyncHandler(async (req, res) => {
     const profile = await getOrganizationPublicProfile(req.params.slug)
     res.json({ data: profile })
+  }),
+)
+
+organizationsRouter.patch(
+  '/organizations/branding',
+  asyncHandler(authenticate),
+  validateBody(organizationBrandingUpdateSchema),
+  asyncHandler(async (req, res) => {
+    const orgId = requireOrgId(req)
+    const { user } = req as AuthenticatedRequest
+    const branding = await updateOrganizationBranding(orgId, user.email, req.body)
+    res.json({ data: branding })
   }),
 )
