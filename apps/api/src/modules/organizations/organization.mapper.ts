@@ -30,7 +30,14 @@ export function mapOrganizationToSummary(org: OrganizationSummarySource): Organi
   }
 }
 
-export function mapOrganizationToPublicProfile(org: OrganizationSummarySource): OrganizationPublicProfile {
+export function mapOrganizationToPublicProfile(org: {
+  slug: string
+  name: string
+  tradingName: string
+  logoUrl: string | null
+  loginBackgroundUrl: string | null
+  themeColor: string | null
+}): OrganizationPublicProfile {
   return {
     slug: org.slug,
     name: org.name,

@@ -64,6 +64,7 @@ export type {
 } from './inventory.js'
 export type { UserDisableRequestDto } from './users.js'
 export type {
+  OrganizationBranding,
   OrganizationSummary,
   OrganizationSignupResponse,
   OrganizationPublicProfile,
