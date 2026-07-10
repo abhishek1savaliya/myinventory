@@ -1,19 +1,58 @@
 'use client'
 
 import { Download, FileText } from 'lucide-react'
-import { ChatAttachmentType } from '@myinventory/shared'
+import { ChatAttachmentType, getChatMessagePreview } from '@myinventory/shared'
 import { formatFileSize } from '@/lib/chat-attachment'
 import { cn } from '@/lib/utils'
 
+function ReplyPreview({ replyTo, isMine }) {
+  if (!replyTo) return null
+
+  return (
+    <div
+      className={cn(
+        'mb-2 rounded-md border-l-2 px-2 py-1 text-xs',
+        isMine ? 'border-white/70 bg-white/10 text-white/90' : 'border-[var(--color-primary)] bg-gray-50 text-[var(--color-muted)]',
+      )}
+    >
+      <p className={cn('font-semibold', !isMine && 'text-[var(--color-primary)]')}>
+        {replyTo.senderName ?? 'User'}
+      </p>
+      <p className="truncate">{getChatMessagePreview(replyTo)}</p>
+    </div>
+  )
+}
+
 export function ChatMessageContent({ message, isMine }) {
+  if (message.isDeletedForEveryone) {
+    return (
+      <p className={cn('italic opacity-80', isMine ? 'text-white/85' : 'text-[var(--color-muted)]')}>
+        This message was deleted
+      </p>
+    )
+  }
+
   const hasAttachment = Boolean(message.attachmentType && message.attachmentUrl)
 
   return (
     <div className="space-y-2">
+      <ReplyPreview replyTo={message.replyTo} isMine={isMine} />
+
+      {message.forwardedFromId && (
+        <p className={cn('text-[10px] font-medium uppercase tracking-wide opacity-75')}>
+          Forwarded
+        </p>
+      )}
+
       {hasAttachment && (
         <div className="overflow-hidden rounded-lg">
           {message.attachmentType === ChatAttachmentType.IMAGE && (
-            <a href={message.attachmentUrl} target="_blank" rel="noopener noreferrer">
+            <a
+              href={message.attachmentUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(event) => event.stopPropagation()}
+            >
               <img
                 src={message.attachmentUrl}
                 alt={message.attachmentName || 'Image'}
@@ -28,6 +67,7 @@ export function ChatMessageContent({ message, isMine }) {
               controls
               className="max-h-72 w-full rounded-lg bg-black"
               preload="metadata"
+              onClick={(event) => event.stopPropagation()}
             >
               <track kind="captions" />
             </video>
@@ -39,6 +79,7 @@ export function ChatMessageContent({ message, isMine }) {
               target="_blank"
               rel="noopener noreferrer"
               download={message.attachmentName || undefined}
+              onClick={(event) => event.stopPropagation()}
               className={cn(
                 'flex items-center gap-3 rounded-lg border px-3 py-2 transition-colors',
                 isMine

@@ -161,6 +161,7 @@ export function initChatSocket(httpServer: HttpServer): Server {
           user.sub,
           payload.recipientId,
           parsed.data.body,
+          parsed.data.replyToMessageId,
         )
 
         emitChatMessage(message)
@@ -223,6 +224,25 @@ export function emitChatRead(
     readAt: result.readAt,
     count: result.count,
   })
+}
+
+export function emitChatMessageDeleted(input: {
+  message: ChatMessageDto
+  partnerId: string
+  actorId: string
+  scope: 'everyone'
+}): void {
+  if (!chatIo) return
+
+  const payload = {
+    messageId: input.message.id,
+    scope: input.scope,
+    actorId: input.actorId,
+    message: input.message,
+  }
+
+  chatIo.to(`user:${input.actorId}`).emit('chat:message-deleted', payload)
+  chatIo.to(`user:${input.partnerId}`).emit('chat:message-deleted', payload)
 }
 
 export function getChatIo(): Server | null {

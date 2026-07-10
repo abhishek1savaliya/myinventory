@@ -15,6 +15,15 @@ export interface ChatUserSummary {
   role: string
 }
 
+export interface ChatMessageReplyPreview {
+  id: string
+  body: string
+  senderId: string
+  senderName?: string
+  attachmentType: ChatAttachmentType | null
+  isDeletedForEveryone: boolean
+}
+
 export interface ChatMessageDto {
   id: string
   senderId: string
@@ -28,6 +37,10 @@ export interface ChatMessageDto {
   attachmentName: string | null
   attachmentMimeType: string | null
   attachmentSize: number | null
+  replyToMessageId: string | null
+  replyTo: ChatMessageReplyPreview | null
+  forwardedFromId: string | null
+  isDeletedForEveryone: boolean
   senderName?: string
   recipientName?: string
 }
@@ -45,6 +58,8 @@ export function getChatDeliveryStatus(
 }
 
 export function getChatMessagePreview(message: ChatMessageDto): string {
+  if (message.isDeletedForEveryone) return 'This message was deleted'
+
   const text = message.body?.trim()
   if (text) return text
 

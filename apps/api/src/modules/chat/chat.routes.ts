@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { AppFeature, chatMessagesQuerySchema, sendChatMessageSchema } from '@myinventory/shared'
+import { AppFeature, chatMessagesQuerySchema, forwardChatMessageSchema, sendChatMessageSchema } from '@myinventory/shared'
 import { asyncHandler } from '../../utils/async-handler.js'
 import { authenticate, type AuthenticatedRequest } from '../../middleware/auth.js'
 import { requireFeatures } from '../../middleware/feature-access.js'
@@ -7,6 +7,9 @@ import { validateBody, validateQuery } from '../../middleware/validate.js'
 import { requireOrgId } from '../../lib/org-context.js'
 import { AppError } from '../../middleware/error-handler.js'
 import {
+  deleteChatMessageForEveryone,
+  deleteChatMessageForMe,
+  forwardChatMessage,
   getConversationMessages,
   getTotalUnreadCount,
   listChatUsers,
@@ -16,7 +19,7 @@ import {
   sendChatMessage,
 } from './chat.service.js'
 import { chatAttachmentUpload } from './chat.upload.js'
-import { emitChatMessage, emitChatRead } from './chat.socket.js'
+import { emitChatMessage, emitChatMessageDeleted, emitChatRead } from './chat.socket.js'
 
 export const chatRouter = Router()
 
@@ -123,9 +126,64 @@ chatRouter.post(
   asyncHandler(async (req, res) => {
     const { user } = req as AuthenticatedRequest
     const orgId = requireOrgId(req)
-    const message = await sendChatMessage(orgId, user.sub, req.params.partnerId, req.body.body)
+    const message = await sendChatMessage(
+      orgId,
+      user.sub,
+      req.params.partnerId,
+      req.body.body,
+      req.body.replyToMessageId,
+    )
     emitChatMessage(message)
     res.status(201).json({ data: message })
+  }),
+)
+
+chatRouter.post(
+  '/chat/messages/:partnerId/forward',
+  asyncHandler(authenticate),
+  requireFeatures(AppFeature.CHAT),
+  validateBody(forwardChatMessageSchema),
+  asyncHandler(async (req, res) => {
+    const { user } = req as AuthenticatedRequest
+    const orgId = requireOrgId(req)
+    const message = await forwardChatMessage(
+      orgId,
+      user.sub,
+      req.params.partnerId,
+      req.body.messageId,
+    )
+    emitChatMessage(message)
+    res.status(201).json({ data: message })
+  }),
+)
+
+chatRouter.delete(
+  '/chat/messages/:messageId/for-me',
+  asyncHandler(authenticate),
+  requireFeatures(AppFeature.CHAT),
+  asyncHandler(async (req, res) => {
+    const { user } = req as AuthenticatedRequest
+    const orgId = requireOrgId(req)
+    const result = await deleteChatMessageForMe(orgId, user.sub, req.params.messageId)
+    res.json({ data: result })
+  }),
+)
+
+chatRouter.delete(
+  '/chat/messages/:messageId/for-everyone',
+  asyncHandler(authenticate),
+  requireFeatures(AppFeature.CHAT),
+  asyncHandler(async (req, res) => {
+    const { user } = req as AuthenticatedRequest
+    const orgId = requireOrgId(req)
+    const result = await deleteChatMessageForEveryone(orgId, user.sub, req.params.messageId)
+    emitChatMessageDeleted({
+      message: result.message,
+      partnerId: result.partnerId,
+      actorId: user.sub,
+      scope: 'everyone',
+    })
+    res.json({ data: result.message })
   }),
 )
 

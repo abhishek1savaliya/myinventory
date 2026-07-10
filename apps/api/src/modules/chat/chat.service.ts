@@ -3,6 +3,7 @@ import type { ChatConversationSummary, ChatMessageDto } from '@myinventory/share
 import { uploadChatAttachment } from '../../lib/chat-attachments.js'
 import { AppError } from '../../middleware/error-handler.js'
 import {
+  isMessageHiddenForUser,
   mapChatMessageToDto,
   mapChatUserToSummary,
   mapConversationToSummary,
@@ -11,7 +12,46 @@ import {
 const messageInclude = {
   sender: { select: { id: true, name: true, email: true, role: true } },
   recipient: { select: { id: true, name: true, email: true, role: true } },
+  replyTo: {
+    include: {
+      sender: { select: { id: true, name: true } },
+    },
+  },
 } as const
+
+async function getMessageForParticipant(
+  orgId: string,
+  userId: string,
+  messageId: string,
+) {
+  const message = await prisma.chatMessage.findFirst({
+    where: {
+      id: messageId,
+      organizationId: orgId,
+      OR: [{ senderId: userId }, { recipientId: userId }],
+    },
+    include: messageInclude,
+  })
+
+  if (!message || isMessageHiddenForUser(message, userId)) {
+    throw new AppError(404, 'Message not found')
+  }
+
+  return message
+}
+
+function conversationMessageFilter(orgId: string, userId: string, partnerId: string) {
+  return {
+    organizationId: orgId,
+    OR: [
+      { senderId: userId, recipientId: partnerId, hiddenForSenderAt: null },
+      { senderId: partnerId, recipientId: userId, hiddenForRecipientAt: null },
+    ],
+  } as {
+    organizationId: string
+    OR: Array<Record<string, unknown>>
+  }
+}
 
 async function assertChatPartner(orgId: string, partnerId: string, currentUserId: string) {
   if (partnerId === currentUserId) {
@@ -79,6 +119,8 @@ export async function listConversations(
   const conversations = new Map<string, ChatConversationSummary>()
 
   for (const message of recentMessages) {
+    if (isMessageHiddenForUser(message, userId)) continue
+
     const partner =
       message.senderId === userId ? message.recipient : message.sender
     if (!partner || conversations.has(partner.id)) continue
@@ -110,14 +152,8 @@ export async function getConversationMessages(
 
   const messages = await prisma.chatMessage.findMany({
     where: {
-      organizationId: orgId,
-      OR: [
-        { senderId: userId, recipientId: partnerId },
-        { senderId: partnerId, recipientId: userId },
-      ],
-      ...(options.before
-        ? { createdAt: { lt: new Date(options.before) } }
-        : {}),
+      ...conversationMessageFilter(orgId, userId, partnerId),
+      ...(options.before ? { createdAt: { lt: new Date(options.before) } } : {}),
     },
     orderBy: { createdAt: 'desc' },
     take: options.limit,
@@ -132,8 +168,20 @@ export async function sendChatMessage(
   senderId: string,
   recipientId: string,
   body: string,
+  replyToMessageId?: string,
 ): Promise<ChatMessageDto> {
   await assertChatPartner(orgId, recipientId, senderId)
+
+  if (replyToMessageId) {
+    const replyTarget = await getMessageForParticipant(orgId, senderId, replyToMessageId)
+    const inConversation =
+      (replyTarget.senderId === senderId && replyTarget.recipientId === recipientId) ||
+      (replyTarget.senderId === recipientId && replyTarget.recipientId === senderId)
+
+    if (!inConversation) {
+      throw new AppError(400, 'Reply target is not in this conversation')
+    }
+  }
 
   const message = await prisma.chatMessage.create({
     data: {
@@ -141,6 +189,13 @@ export async function sendChatMessage(
       senderId,
       recipientId,
       body,
+      replyToMessageId: replyToMessageId ?? null,
+    } as {
+      organizationId: string
+      senderId: string
+      recipientId: string
+      body: string
+      replyToMessageId: string | null
     },
     include: messageInclude,
   })
@@ -277,6 +332,98 @@ export async function getTotalUnreadCount(orgId: string, userId: string): Promis
       organizationId: orgId,
       recipientId: userId,
       readAt: null,
+      hiddenForRecipientAt: null,
+      deletedForEveryoneAt: null,
+    } as {
+      organizationId: string
+      recipientId: string
+      readAt: null
+      hiddenForRecipientAt: null
+      deletedForEveryoneAt: null
     },
   })
+}
+
+export async function deleteChatMessageForMe(
+  orgId: string,
+  userId: string,
+  messageId: string,
+): Promise<{ messageId: string; partnerId: string }> {
+  const message = await getMessageForParticipant(orgId, userId, messageId)
+  const partnerId = message.senderId === userId ? message.recipientId : message.senderId
+  const now = new Date()
+
+  if (message.senderId === userId) {
+    await prisma.chatMessage.update({
+      where: { id: messageId },
+      data: { hiddenForSenderAt: now } as { hiddenForSenderAt: Date },
+    })
+  } else {
+    await prisma.chatMessage.update({
+      where: { id: messageId },
+      data: { hiddenForRecipientAt: now } as { hiddenForRecipientAt: Date },
+    })
+  }
+
+  return { messageId, partnerId }
+}
+
+export async function deleteChatMessageForEveryone(
+  orgId: string,
+  userId: string,
+  messageId: string,
+): Promise<{ message: ChatMessageDto; partnerId: string }> {
+  const message = await getMessageForParticipant(orgId, userId, messageId)
+
+  if (message.senderId !== userId) {
+    throw new AppError(403, 'Only the sender can delete a message for everyone')
+  }
+
+  if (message.deletedForEveryoneAt) {
+    throw new AppError(400, 'Message is already deleted for everyone')
+  }
+
+  const updated = await prisma.chatMessage.update({
+    where: { id: messageId },
+    data: { deletedForEveryoneAt: new Date() } as { deletedForEveryoneAt: Date },
+    include: messageInclude,
+  })
+
+  return {
+    message: mapChatMessageToDto(updated),
+    partnerId: message.recipientId,
+  }
+}
+
+export async function forwardChatMessage(
+  orgId: string,
+  senderId: string,
+  recipientId: string,
+  messageId: string,
+): Promise<ChatMessageDto> {
+  await assertChatPartner(orgId, recipientId, senderId)
+
+  const original = await getMessageForParticipant(orgId, senderId, messageId)
+
+  if (original.deletedForEveryoneAt) {
+    throw new AppError(400, 'Cannot forward a deleted message')
+  }
+
+  const message = await prisma.chatMessage.create({
+    data: {
+      organizationId: orgId,
+      senderId,
+      recipientId,
+      body: original.body,
+      attachmentType: original.attachmentType,
+      attachmentUrl: original.attachmentUrl,
+      attachmentName: original.attachmentName,
+      attachmentMimeType: original.attachmentMimeType,
+      attachmentSize: original.attachmentSize,
+      forwardedFromId: original.id,
+    } as Record<string, unknown>,
+    include: messageInclude,
+  })
+
+  return mapChatMessageToDto(message)
 }

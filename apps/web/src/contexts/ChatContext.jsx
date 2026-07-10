@@ -211,6 +211,10 @@ export function ChatProvider({ children }) {
       attachmentName: confirmed.attachmentName ?? null,
       attachmentMimeType: confirmed.attachmentMimeType ?? null,
       attachmentSize: confirmed.attachmentSize ?? null,
+      replyToMessageId: confirmed.replyToMessageId ?? null,
+      replyTo: confirmed.replyTo ?? null,
+      forwardedFromId: confirmed.forwardedFromId ?? null,
+      isDeletedForEveryone: confirmed.isDeletedForEveryone ?? false,
       clientStatus: 'sent',
     }
 
@@ -264,6 +268,30 @@ export function ChatProvider({ children }) {
     }))
   }, [])
 
+  const removeMessageFromPartner = useCallback((partnerId, messageId) => {
+    setMessagesByPartner((prev) => ({
+      ...prev,
+      [partnerId]: (prev[partnerId] ?? []).filter((item) => item.id !== messageId),
+    }))
+  }, [])
+
+  const applyMessageDeletedForEveryone = useCallback((partnerId, message) => {
+    setMessagesByPartner((prev) => ({
+      ...prev,
+      [partnerId]: (prev[partnerId] ?? []).map((item) =>
+        item.id === message.id ? { ...item, ...message, clientStatus: 'sent' } : item,
+      ),
+    }))
+
+    setConversations((prev) =>
+      prev.map((item) =>
+        item.partnerId === partnerId && item.lastMessage?.id === message.id
+          ? { ...item, lastMessage: message }
+          : item,
+      ),
+    )
+  }, [])
+
   const handleIncomingMessage = useCallback(
     (message) => {
       appendMessage(message)
@@ -313,7 +341,7 @@ export function ChatProvider({ children }) {
   )
 
   const sendMessage = useCallback(
-    async (recipientId, body) => {
+    async (recipientId, body, { replyToMessageId } = {}) => {
       const trimmed = body.trim()
       const currentUserId = userIdRef.current
 
@@ -335,17 +363,23 @@ export function ChatProvider({ children }) {
         attachmentName: null,
         attachmentMimeType: null,
         attachmentSize: null,
+        replyToMessageId: replyToMessageId ?? null,
+        replyTo: null,
+        forwardedFromId: null,
+        isDeletedForEveryone: false,
         clientStatus: 'sending',
       }
 
       appendMessage(optimistic)
       playChatSentSound()
 
+      const payload = { body: trimmed, ...(replyToMessageId ? { replyToMessageId } : {}) }
+
       try {
         const socket = socketRef.current
         if (socket?.connected) {
           const confirmed = await new Promise((resolve, reject) => {
-            socket.emit('chat:send', { recipientId, body: trimmed }, (response) => {
+            socket.emit('chat:send', { recipientId, ...payload }, (response) => {
               if (!response?.ok) {
                 reject(new Error(response?.error ?? 'Failed to send message'))
                 return
@@ -359,7 +393,7 @@ export function ChatProvider({ children }) {
 
         const response = await apiFetch(`/api/chat/messages/${recipientId}`, {
           method: 'POST',
-          body: JSON.stringify({ body: trimmed }),
+          body: JSON.stringify(payload),
         })
         replaceOptimisticMessage(recipientId, clientId, response.data)
         return response.data
@@ -424,6 +458,53 @@ export function ChatProvider({ children }) {
     [appendMessage, canUseChat, markOptimisticFailed, replaceOptimisticMessage],
   )
 
+  const deleteMessageForMe = useCallback(
+    async (partnerId, messageId) => {
+      if (!canUseChat || !partnerId || !messageId || messageId.startsWith('temp-')) return
+
+      await apiFetch(`/api/chat/messages/${messageId}/for-me`, { method: 'DELETE' })
+      removeMessageFromPartner(partnerId, messageId)
+    },
+    [canUseChat, removeMessageFromPartner],
+  )
+
+  const deleteMessageForEveryone = useCallback(
+    async (partnerId, messageId) => {
+      if (!canUseChat || !partnerId || !messageId || messageId.startsWith('temp-')) return
+
+      const response = await apiFetch(`/api/chat/messages/${messageId}/for-everyone`, {
+        method: 'DELETE',
+      })
+      applyMessageDeletedForEveryone(partnerId, response.data)
+    },
+    [applyMessageDeletedForEveryone, canUseChat],
+  )
+
+  const forwardMessage = useCallback(
+    async (targetPartnerId, messageId) => {
+      if (!canUseChat || !targetPartnerId || !messageId || messageId.startsWith('temp-')) {
+        return null
+      }
+
+      const response = await apiFetch(`/api/chat/messages/${targetPartnerId}/forward`, {
+        method: 'POST',
+        body: JSON.stringify({ messageId }),
+      })
+
+      const message = response.data
+      const partnerId =
+        message.senderId === userIdRef.current ? message.recipientId : message.senderId
+      appendMessage(message)
+
+      if (isOnChatPageRef.current && activePartnerRef.current === partnerId) {
+        playChatSentSound()
+      }
+
+      return message
+    },
+    [appendMessage, canUseChat],
+  )
+
   const dismissNotification = useCallback((partnerId) => {
     setNotifications((prev) => prev.filter((item) => item.partnerId !== partnerId))
   }, [])
@@ -438,11 +519,14 @@ export function ChatProvider({ children }) {
   const applyMessageDeliveredRef = useRef(applyMessageDelivered)
   const applyMessagesReadRef = useRef(applyMessagesRead)
 
+  const applyMessageDeletedForEveryoneRef = useRef(applyMessageDeletedForEveryone)
+
   refreshConversationsRef.current = refreshConversations
   refreshUsersRef.current = refreshUsers
   handleIncomingMessageRef.current = handleIncomingMessage
   applyMessageDeliveredRef.current = applyMessageDelivered
   applyMessagesReadRef.current = applyMessagesRead
+  applyMessageDeletedForEveryoneRef.current = applyMessageDeletedForEveryone
 
   useEffect(() => {
     if (!canUseChat || !API_BASE_URL) {
@@ -500,6 +584,18 @@ export function ChatProvider({ children }) {
       }
     }
 
+    const onMessageDeleted = (payload) => {
+      if (payload?.scope !== 'everyone' || !payload.message) return
+
+      const currentUserId = userIdRef.current
+      const partnerId =
+        payload.message.senderId === currentUserId
+          ? payload.message.recipientId
+          : payload.message.senderId
+
+      applyMessageDeletedForEveryoneRef.current(partnerId, payload.message)
+    }
+
     const onPresenceSync = ({ liveUserIds: nextLiveUserIds }) => {
       setLiveUserIds(new Set(Array.isArray(nextLiveUserIds) ? nextLiveUserIds : []))
     }
@@ -509,6 +605,7 @@ export function ChatProvider({ children }) {
     socket.on('chat:message', onMessage)
     socket.on('chat:read', onRead)
     socket.on('chat:delivered', onDelivered)
+    socket.on('chat:message-deleted', onMessageDeleted)
     socket.on('chat:presence:sync', onPresenceSync)
 
     if (socket.connected) {
@@ -521,6 +618,7 @@ export function ChatProvider({ children }) {
       socket.off('chat:message', onMessage)
       socket.off('chat:read', onRead)
       socket.off('chat:delivered', onDelivered)
+      socket.off('chat:message-deleted', onMessageDeleted)
       socket.off('chat:presence:sync', onPresenceSync)
 
       if (isOnChatPageRef.current) {
@@ -586,6 +684,9 @@ export function ChatProvider({ children }) {
       markConversationRead,
       sendMessage,
       sendChatAttachment,
+      deleteMessageForMe,
+      deleteMessageForEveryone,
+      forwardMessage,
       dismissNotification,
       clearNotifications,
     }),
@@ -610,6 +711,9 @@ export function ChatProvider({ children }) {
       markConversationRead,
       sendMessage,
       sendChatAttachment,
+      deleteMessageForMe,
+      deleteMessageForEveryone,
+      forwardMessage,
       dismissNotification,
       clearNotifications,
     ],

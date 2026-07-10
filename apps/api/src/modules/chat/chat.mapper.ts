@@ -1,34 +1,85 @@
 import type { ChatMessage } from '@prisma/client'
-import type { ChatConversationSummary, ChatMessageDto, ChatUserSummary } from '@myinventory/shared'
+import type {
+  ChatConversationSummary,
+  ChatMessageDto,
+  ChatUserSummary,
+} from '@myinventory/shared'
+import { getChatMessagePreview } from '@myinventory/shared'
 
-export function mapChatMessageToDto(
-  message: ChatMessage & {
-    deliveredAt?: Date | null
-    attachmentType?: string | null
-    attachmentUrl?: string | null
-    attachmentName?: string | null
-    attachmentMimeType?: string | null
-    attachmentSize?: number | null
-    sender?: { name: string }
-    recipient?: { name: string }
-  },
-): ChatMessageDto {
+type MessageSource = ChatMessage & {
+  deliveredAt?: Date | null
+  attachmentType?: string | null
+  attachmentUrl?: string | null
+  attachmentName?: string | null
+  attachmentMimeType?: string | null
+  attachmentSize?: number | null
+  replyToMessageId?: string | null
+  forwardedFromId?: string | null
+  deletedForEveryoneAt?: Date | null
+  hiddenForSenderAt?: Date | null
+  hiddenForRecipientAt?: Date | null
+  sender?: { id?: string; name: string }
+  recipient?: { name: string }
+  replyTo?:
+    | (ChatMessage & {
+        deletedForEveryoneAt?: Date | null
+        attachmentType?: string | null
+        sender?: { id?: string; name: string }
+      })
+    | null
+}
+
+function mapReplyPreview(
+  replyTo: NonNullable<MessageSource['replyTo']>,
+): ChatMessageDto['replyTo'] {
+  const isDeleted = Boolean(replyTo.deletedForEveryoneAt)
+
+  return {
+    id: replyTo.id,
+    body: isDeleted ? 'This message was deleted' : replyTo.body,
+    senderId: replyTo.senderId,
+    senderName: replyTo.sender?.name,
+    attachmentType: isDeleted
+      ? null
+      : ((replyTo.attachmentType as ChatMessageDto['attachmentType']) ?? null),
+    isDeletedForEveryone: isDeleted,
+  }
+}
+
+export function mapChatMessageToDto(message: MessageSource): ChatMessageDto {
+  const isDeletedForEveryone = Boolean(message.deletedForEveryoneAt)
+
   return {
     id: message.id,
     senderId: message.senderId,
     recipientId: message.recipientId,
-    body: message.body,
+    body: isDeletedForEveryone ? '' : message.body,
     createdAt: message.createdAt.toISOString(),
     deliveredAt: message.deliveredAt?.toISOString() ?? null,
     readAt: message.readAt?.toISOString() ?? null,
-    attachmentType: (message.attachmentType as ChatMessageDto['attachmentType']) ?? null,
-    attachmentUrl: message.attachmentUrl ?? null,
-    attachmentName: message.attachmentName ?? null,
-    attachmentMimeType: message.attachmentMimeType ?? null,
-    attachmentSize: message.attachmentSize ?? null,
+    attachmentType: isDeletedForEveryone
+      ? null
+      : ((message.attachmentType as ChatMessageDto['attachmentType']) ?? null),
+    attachmentUrl: isDeletedForEveryone ? null : (message.attachmentUrl ?? null),
+    attachmentName: isDeletedForEveryone ? null : (message.attachmentName ?? null),
+    attachmentMimeType: isDeletedForEveryone ? null : (message.attachmentMimeType ?? null),
+    attachmentSize: isDeletedForEveryone ? null : (message.attachmentSize ?? null),
+    replyToMessageId: message.replyToMessageId ?? null,
+    replyTo: message.replyTo ? mapReplyPreview(message.replyTo) : null,
+    forwardedFromId: message.forwardedFromId ?? null,
+    isDeletedForEveryone,
     senderName: message.sender?.name,
     recipientName: message.recipient?.name,
   }
+}
+
+export function isMessageHiddenForUser(
+  message: { senderId: string; recipientId: string; hiddenForSenderAt?: Date | null; hiddenForRecipientAt?: Date | null },
+  userId: string,
+): boolean {
+  if (message.senderId === userId && message.hiddenForSenderAt) return true
+  if (message.recipientId === userId && message.hiddenForRecipientAt) return true
+  return false
 }
 
 export function mapChatUserToSummary(user: {
@@ -58,4 +109,8 @@ export function mapConversationToSummary(input: {
     lastMessage: input.lastMessage,
     unreadCount: input.unreadCount,
   }
+}
+
+export function getMessagePreviewFromDto(message: ChatMessageDto): string {
+  return getChatMessagePreview(message)
 }

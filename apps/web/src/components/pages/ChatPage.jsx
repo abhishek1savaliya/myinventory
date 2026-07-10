@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { MessageCircle, Paperclip, Send, Users } from 'lucide-react'
 import { getChatMessagePreview } from '@myinventory/shared'
+import { ChatMessageActionsMenu } from '@/components/chat/ChatMessageActionsMenu'
+import { ForwardMessageDialog } from '@/components/chat/ForwardMessageDialog'
+import { ChatReplyBar } from '@/components/chat/ChatReplyBar'
 import { MessageStatusTicks } from '@/components/chat/MessageStatusTicks'
 import { ChatMessageContent } from '@/components/chat/ChatMessageContent'
 import { validateChatFile } from '@/lib/chat-attachment'
@@ -14,6 +17,29 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { initChatAudio } from '@/lib/chat-sound'
 import { cn } from '@/lib/utils'
+
+function openMessageMenu(event, message, setMenuState) {
+  event.preventDefault()
+  event.stopPropagation()
+
+  const point =
+    'touches' in event && event.touches?.[0]
+      ? event.touches[0]
+      : 'changedTouches' in event && event.changedTouches?.[0]
+        ? event.changedTouches[0]
+        : event
+  setMenuState({
+    open: true,
+    message,
+    x: point.clientX,
+    y: point.clientY,
+  })
+}
+
+function handleMessageTap(event, message, setMenuState) {
+  if (!window.matchMedia('(pointer: coarse)').matches) return
+  openMessageMenu(event, message, setMenuState)
+}
 
 function formatMessageTime(value) {
   const date = new Date(value)
@@ -94,6 +120,9 @@ export function ChatPage() {
   const [sendError, setSendError] = useState(null)
   const [uploadProgress, setUploadProgress] = useState(null)
   const [showUsersOnMobile, setShowUsersOnMobile] = useState(true)
+  const [replyToMessage, setReplyToMessage] = useState(null)
+  const [menuState, setMenuState] = useState({ open: false, message: null, x: 0, y: 0 })
+  const [forwardMessage, setForwardMessage] = useState(null)
 
   const {
     canUseChat,
@@ -110,6 +139,9 @@ export function ChatPage() {
     markConversationRead,
     sendMessage,
     sendChatAttachment,
+    deleteMessageForMe,
+    deleteMessageForEveryone,
+    forwardMessage: forwardMessageToUser,
     dismissNotification,
     isUserLive,
   } = useChat()
@@ -201,10 +233,12 @@ export function ChatPage() {
     const text = draft.trim()
     if (!activePartnerId || !text) return
 
+    const replyToMessageId = replyToMessage?.id
     setDraft('')
+    setReplyToMessage(null)
     setSendError(null)
 
-    void sendMessage(activePartnerId, text).catch((error) => {
+    void sendMessage(activePartnerId, text, { replyToMessageId }).catch((error) => {
       setSendError(error instanceof Error ? error.message : 'Could not send message')
     })
   }
@@ -244,6 +278,21 @@ export function ChatPage() {
         setUploadProgress(null)
         setSendError(error instanceof Error ? error.message : 'Could not upload file')
       })
+  }
+
+  async function handleForwardSelect(targetPartnerId) {
+    if (!forwardMessage) return
+
+    setSendError(null)
+    try {
+      await forwardMessageToUser(targetPartnerId, forwardMessage.id)
+      setForwardMessage(null)
+      if (targetPartnerId !== activePartnerId) {
+        await selectPartner(targetPartnerId)
+      }
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'Could not forward message')
+    }
   }
 
   if (!canUseChat) {
@@ -367,14 +416,37 @@ export function ChatPage() {
                   ) : (
                     activeMessages.map((message) => {
                       const isMine = message.senderId === user?.id
+                      const canShowMenu = !message.id.startsWith('temp-')
                       return (
                         <div
                           key={message.id}
                           className={cn('flex', isMine ? 'justify-end' : 'justify-start')}
                         >
                           <div
+                            role={canShowMenu ? 'button' : undefined}
+                            tabIndex={canShowMenu ? 0 : undefined}
+                            onContextMenu={
+                              canShowMenu
+                                ? (event) => openMessageMenu(event, message, setMenuState)
+                                : undefined
+                            }
+                            onClick={
+                              canShowMenu
+                                ? (event) => handleMessageTap(event, message, setMenuState)
+                                : undefined
+                            }
+                            onKeyDown={
+                              canShowMenu
+                                ? (event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                      openMessageMenu(event, message, setMenuState)
+                                    }
+                                  }
+                                : undefined
+                            }
                             className={cn(
                               'max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm',
+                              canShowMenu && 'cursor-pointer select-none',
                               isMine
                                 ? 'rounded-br-md bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                                 : 'rounded-bl-md border border-[var(--color-border)] bg-white text-gray-900',
@@ -426,6 +498,7 @@ export function ChatPage() {
                       </div>
                     </div>
                   )}
+                  <ChatReplyBar message={replyToMessage} onCancel={() => setReplyToMessage(null)} />
                   <div className="flex gap-2">
                     <Button
                       type="button"
@@ -454,6 +527,51 @@ export function ChatPage() {
           )}
         </Card>
       </div>
+
+      <ChatMessageActionsMenu
+        open={menuState.open}
+        x={menuState.x}
+        y={menuState.y}
+        isMine={menuState.message?.senderId === user?.id}
+        canDeleteForEveryone={
+          menuState.message?.senderId === user?.id && !menuState.message?.isDeletedForEveryone
+        }
+        canReply={!menuState.message?.isDeletedForEveryone}
+        canForward={!menuState.message?.isDeletedForEveryone}
+        onReply={() => {
+          if (menuState.message && !menuState.message.isDeletedForEveryone) {
+            setReplyToMessage(menuState.message)
+          }
+        }}
+        onForward={() => {
+          if (menuState.message && !menuState.message.isDeletedForEveryone) {
+            setForwardMessage(menuState.message)
+          }
+        }}
+        onDeleteForMe={() => {
+          if (menuState.message && activePartnerId) {
+            void deleteMessageForMe(activePartnerId, menuState.message.id).catch((error) => {
+              setSendError(error instanceof Error ? error.message : 'Could not delete message')
+            })
+          }
+        }}
+        onDeleteForEveryone={() => {
+          if (menuState.message && activePartnerId) {
+            void deleteMessageForEveryone(activePartnerId, menuState.message.id).catch((error) => {
+              setSendError(error instanceof Error ? error.message : 'Could not delete message')
+            })
+          }
+        }}
+        onClose={() => setMenuState({ open: false, message: null, x: 0, y: 0 })}
+      />
+
+      <ForwardMessageDialog
+        open={Boolean(forwardMessage)}
+        users={usersWithMeta}
+        currentPartnerId={activePartnerId}
+        onSelect={handleForwardSelect}
+        onClose={() => setForwardMessage(null)}
+      />
     </div>
   )
 }
