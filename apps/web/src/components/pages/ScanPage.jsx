@@ -20,6 +20,7 @@ import {
   setCachedBarcodeLookup,
 } from '@/lib/scan-barcode-cache'
 import { listCameraDevices, preloadBarcodeScanner, startBarcodeScanner } from '@/lib/barcode-scanner'
+import { extractProductDetailsFromImage, terminateProductPhotoOcr } from '@/lib/product-photo-ocr'
 import {
   applyTorch,
   getStoredTorchPreference,
@@ -62,6 +63,11 @@ function shouldProcessScan(barcode, lastScanRef) {
   return true
 }
 
+function isPlaceholderProductName(name, barcode) {
+  const trimmed = name.trim()
+  return !trimmed || trimmed === `Product ${barcode}`
+}
+
 function productToForm(product) {
   return {
     sku: product.sku,
@@ -82,6 +88,7 @@ export function ScanPage() {
   const scanningRef = useRef(false)
   const lastScanRef = useRef({ barcode: '', at: 0 })
   const lookupInFlightRef = useRef(false)
+  const ocrRunIdRef = useRef(0)
   const resultRef = useRef(null)
 
   const [cameras, setCameras] = useState([])
@@ -105,6 +112,8 @@ export function ScanPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [saveProgress, setSaveProgress] = useState(null)
   const [isCompressingImage, setIsCompressingImage] = useState(false)
+  const [isReadingPhotoText, setIsReadingPhotoText] = useState(false)
+  const [photoOcrMessage, setPhotoOcrMessage] = useState(null)
   const [torchOn, setTorchOn] = useState(() =>
     typeof window !== 'undefined' ? getStoredTorchPreference() : false,
   )
@@ -345,6 +354,7 @@ export function ScanPage() {
 
     return () => {
       stopScanner()
+      void terminateProductPhotoOcr()
     }
     // Mount/unmount only — mobile must start camera from a button tap
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -352,6 +362,9 @@ export function ScanPage() {
 
   function resetScan() {
     stopScanner()
+    ocrRunIdRef.current += 1
+    setIsReadingPhotoText(false)
+    setPhotoOcrMessage(null)
     setScannedBarcode('')
     setProduct(null)
     setLookupError(null)
@@ -402,7 +415,71 @@ export function ScanPage() {
     setPendingImages((prev) => prev.filter((_, itemIndex) => itemIndex !== photo.pendingIndex))
   }
 
-  async function addPendingImage(dataUrl) {
+  function applyPhotoOcrDetails(details) {
+    if (!details) return false
+
+    let applied = false
+
+    setForm((prev) => {
+      const next = { ...prev }
+
+      if (details.name && isPlaceholderProductName(prev.name, prev.barcode)) {
+        next.name = details.name
+        applied = true
+      }
+
+      if (details.category && !prev.category.trim()) {
+        next.category = details.category
+        applied = true
+      }
+
+      if (details.description && !prev.description.trim()) {
+        next.description = details.description
+        applied = true
+      }
+
+      return next
+    })
+
+    return applied
+  }
+
+  async function runPhotoOcr(imageDataUrl) {
+    const runId = ocrRunIdRef.current + 1
+    ocrRunIdRef.current = runId
+
+    setIsReadingPhotoText(true)
+    setPhotoOcrMessage('Reading text from photo…')
+
+    try {
+      const details = await extractProductDetailsFromImage(imageDataUrl, (progress) => {
+        if (ocrRunIdRef.current === runId) {
+          setPhotoOcrMessage(`Reading text from photo… ${Math.round(progress * 100)}%`)
+        }
+      })
+
+      if (ocrRunIdRef.current !== runId) return
+
+      const applied = applyPhotoOcrDetails(details)
+      if (applied) {
+        setPhotoOcrMessage('Filled product details from photo text.')
+      } else if (details.name || details.category || details.description) {
+        setPhotoOcrMessage('Text found in photo. Fields already filled were left unchanged.')
+      } else {
+        setPhotoOcrMessage('No readable product text found in this photo.')
+      }
+    } catch {
+      if (ocrRunIdRef.current === runId) {
+        setPhotoOcrMessage('Could not read text from this photo.')
+      }
+    } finally {
+      if (ocrRunIdRef.current === runId) {
+        setIsReadingPhotoText(false)
+      }
+    }
+  }
+
+  async function addPendingImage(dataUrl, { runOcr = false } = {}) {
     if (!canAddMoreImages) {
       setFormError(`Maximum ${MAX_PRODUCT_IMAGES} photos per product`)
       return
@@ -413,6 +490,9 @@ export function ScanPage() {
     try {
       const compressed = await compressImageDataUrl(dataUrl)
       setPendingImages((prev) => [...prev, compressed])
+      if (runOcr) {
+        void runPhotoOcr(compressed)
+      }
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Could not process image')
     } finally {
@@ -439,7 +519,8 @@ export function ScanPage() {
     if (!context) return
 
     context.drawImage(video, 0, 0)
-    await addPendingImage(canvas.toDataURL('image/jpeg', 0.92))
+    const isFirstPhoto = savedImages.length + pendingImages.length === 0
+    await addPendingImage(canvas.toDataURL('image/jpeg', 0.92), { runOcr: isFirstPhoto })
   }
 
   async function handleImageFile(event) {
@@ -452,6 +533,7 @@ export function ScanPage() {
     try {
       const nextImages = [...pendingImages]
       let remainingSlots = MAX_PRODUCT_IMAGES - savedImages.length - nextImages.length
+      let firstCompressed = null
 
       for (const file of files) {
         if (remainingSlots <= 0) {
@@ -460,11 +542,19 @@ export function ScanPage() {
         }
 
         const compressed = await compressImageFile(file)
+        if (!firstCompressed) {
+          firstCompressed = compressed
+        }
         nextImages.push(compressed)
         remainingSlots -= 1
       }
 
       setPendingImages(nextImages)
+
+      const shouldRunOcr = pendingImages.length === 0 && savedImages.length === 0 && firstCompressed
+      if (shouldRunOcr) {
+        void runPhotoOcr(firstCompressed)
+      }
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Could not process image')
     } finally {
@@ -842,10 +932,14 @@ export function ScanPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => void capturePhoto()}
-                      disabled={isCompressingImage || !canAddMoreImages}
+                      disabled={isCompressingImage || isReadingPhotoText || !canAddMoreImages}
                     >
                       <Camera className="mr-2 h-4 w-4" />
-                      {isCompressingImage ? 'Processing…' : 'Capture'}
+                      {isCompressingImage
+                        ? 'Processing…'
+                        : isReadingPhotoText
+                          ? 'Reading label…'
+                          : 'Capture'}
                     </Button>
                     <label
                       className={`inline-flex items-center justify-center gap-2 rounded-md border border-[var(--color-border)] bg-white px-3 py-1.5 text-xs font-medium hover:bg-gray-50 ${
@@ -860,7 +954,7 @@ export function ScanPage() {
                         accept="image/jpeg,image/png,image/webp"
                         className="hidden"
                         multiple
-                        disabled={isCompressingImage || !canAddMoreImages}
+                        disabled={isCompressingImage || isReadingPhotoText || !canAddMoreImages}
                         onChange={handleImageFile}
                       />
                       <ImagePlus className="h-4 w-4" />
@@ -870,6 +964,15 @@ export function ScanPage() {
                   {!canAddMoreImages && (
                     <p className="text-xs text-[var(--color-muted)]">
                       Maximum {MAX_PRODUCT_IMAGES} photos reached. Remove a photo to add another.
+                    </p>
+                  )}
+                  {photoOcrMessage && (
+                    <p
+                      className={`text-xs ${
+                        isReadingPhotoText ? 'text-[var(--color-primary)]' : 'text-[var(--color-muted)]'
+                      }`}
+                    >
+                      {photoOcrMessage}
                     </p>
                   )}
                 </div>
