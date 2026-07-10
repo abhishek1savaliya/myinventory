@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { FEATURE_LABELS } from '@myinventory/shared'
+import { AppFeature, FEATURE_LABELS } from '@myinventory/shared'
 import { useAuth } from '@/contexts/use-auth'
 import { isOrganizationOwner } from '@/lib/org-owner'
 import { orgWelcomePath } from '@/lib/org-paths'
@@ -14,6 +14,15 @@ import {
   setStoredScanSoundEnabled,
   setStoredScanSoundVolume,
 } from '@/lib/scan-sound'
+import {
+  getStoredChatSoundEnabled,
+  getStoredChatSoundVolume,
+  initChatAudio,
+  playChatIncomingSound,
+  playChatSentSound,
+  setStoredChatSoundEnabled,
+  setStoredChatSoundVolume,
+} from '@/lib/chat-sound'
 import { getStoredTorchPreference, setStoredTorchPreference } from '@/lib/scan-torch'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
@@ -47,17 +56,22 @@ function SettingToggle({ id, label, description, checked, onChange, disabled = f
 }
 
 export function SettingsPage() {
-  const { user, refreshUser } = useAuth()
+  const { user, refreshUser, hasFeature } = useAuth()
   const [torchOn, setTorchOn] = useState(false)
   const [scanSoundOn, setScanSoundOn] = useState(true)
   const [scanSoundVolume, setScanSoundVolume] = useState(100)
+  const [chatSoundOn, setChatSoundOn] = useState(true)
+  const [chatSoundVolume, setChatSoundVolume] = useState(100)
   const isOwner = isOrganizationOwner(user)
   const org = user?.organization
+  const canUseChat = hasFeature(AppFeature.CHAT)
 
   useEffect(() => {
     setTorchOn(getStoredTorchPreference())
     setScanSoundOn(getStoredScanSoundEnabled())
     setScanSoundVolume(getStoredScanSoundVolume())
+    setChatSoundOn(getStoredChatSoundEnabled())
+    setChatSoundVolume(getStoredChatSoundVolume())
   }, [])
 
   function handleTorchChange(enabled) {
@@ -82,6 +96,35 @@ export function SettingsPage() {
       initScanAudio()
       playScanBeep('scanned')
     }
+  }
+
+  function handleChatSoundChange(enabled) {
+    setChatSoundOn(enabled)
+    setStoredChatSoundEnabled(enabled)
+    if (enabled) {
+      initChatAudio()
+      playChatIncomingSound({ inConversation: false })
+    }
+  }
+
+  function handleChatSoundVolumeChange(volume) {
+    const nextVolume = Number(volume)
+    setChatSoundVolume(nextVolume)
+    setStoredChatSoundVolume(nextVolume)
+    if (chatSoundOn) {
+      initChatAudio()
+      playChatIncomingSound({ inConversation: false })
+    }
+  }
+
+  function previewChatSentSound() {
+    initChatAudio()
+    playChatSentSound()
+  }
+
+  function previewChatIncomingSound() {
+    initChatAudio()
+    playChatIncomingSound({ inConversation: false })
   }
 
   return (
@@ -218,6 +261,66 @@ export function SettingsPage() {
           />
         </CardContent>
       </Card>
+
+      {canUseChat && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Chat</CardTitle>
+            <CardDescription>Message sounds for send and receive on this device</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <SettingToggle
+              id="setting-chat-sound"
+              label="Chat sounds"
+              description="Play sounds when you send a message and when a new message arrives"
+              checked={chatSoundOn}
+              onChange={handleChatSoundChange}
+            />
+            {chatSoundOn && (
+              <>
+                <div className="rounded-md border border-[var(--color-border)] bg-white px-4 py-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <Label htmlFor="setting-chat-sound-volume" className="text-sm font-medium text-gray-900">
+                        Chat volume
+                      </Label>
+                      <p className="text-xs text-[var(--color-muted)]">
+                        100% is default. Increase up to 200% for louder chat sounds.
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-sm font-medium tabular-nums text-[var(--color-primary)]">
+                      {chatSoundVolume}%
+                    </span>
+                  </div>
+                  <input
+                    id="setting-chat-sound-volume"
+                    type="range"
+                    min={50}
+                    max={200}
+                    step={5}
+                    value={chatSoundVolume}
+                    onChange={(event) => handleChatSoundVolumeChange(event.target.value)}
+                    className="mt-3 h-2 w-full cursor-pointer accent-[var(--color-primary)]"
+                  />
+                  <div className="mt-1 flex justify-between text-[10px] text-[var(--color-muted)]">
+                    <span>50%</span>
+                    <span>100%</span>
+                    <span>200%</span>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={previewChatSentSound}>
+                    Preview send sound
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={previewChatIncomingSound}>
+                    Preview receive sound
+                  </Button>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

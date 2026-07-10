@@ -6,7 +6,7 @@ import { io } from 'socket.io-client'
 import { AppFeature } from '@myinventory/shared'
 import { API_BASE_URL, apiFetch } from '@/lib/api-client'
 import { getStoredSessionId } from '@/lib/auth-storage'
-import { initChatAudio, playChatNotificationSound } from '@/lib/chat-sound'
+import { initChatAudio, playChatIncomingSound, playChatSentSound } from '@/lib/chat-sound'
 import { useAuth } from '@/contexts/use-auth'
 import { ChatContext } from './chat-context'
 
@@ -272,6 +272,10 @@ export function ChatProvider({ children }) {
         socketRef.current?.emit('chat:delivered', { messageId: message.id })
       }
 
+      if (isIncoming) {
+        playChatIncomingSound({ inConversation: viewingConversation })
+      }
+
       if (isIncoming && !viewingConversation) {
         setTotalUnread((prev) => prev + 1)
         setNotifications((prev) =>
@@ -281,7 +285,6 @@ export function ChatProvider({ children }) {
             preview: message.body,
           }),
         )
-        playChatNotificationSound()
       }
 
       if (isIncoming && viewingConversation) {
@@ -325,6 +328,7 @@ export function ChatProvider({ children }) {
       }
 
       appendMessage(optimistic)
+      playChatSentSound()
 
       try {
         const socket = socketRef.current
