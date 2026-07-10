@@ -13,14 +13,14 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { ImageCarousel } from '@/components/ui/image-carousel'
 
 import { initScanAudio, playScanBeep } from '@/lib/scan-sound'
-import { compressImageDataUrl, compressImageFile } from '@/lib/compress-image'
+import { compressImageDataUrl } from '@/lib/compress-image'
 import {
   clearCachedBarcodeLookup,
   getCachedBarcodeLookup,
   setCachedBarcodeLookup,
 } from '@/lib/scan-barcode-cache'
 import { listCameraDevices, preloadBarcodeScanner, startBarcodeScanner } from '@/lib/barcode-scanner'
-import { extractProductDetailsFromImage, terminateProductPhotoOcr } from '@/lib/product-photo-ocr'
+import { extractProductDetailsFromImage, preloadProductPhotoOcr } from '@/lib/product-photo-ocr'
 import {
   applyTorch,
   getStoredTorchPreference,
@@ -61,6 +61,21 @@ function shouldProcessScan(barcode, lastScanRef) {
   }
   lastScanRef.current = { barcode, at: now }
   return true
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result)
+      } else {
+        reject(new Error('Could not read image file'))
+      }
+    }
+    reader.onerror = () => reject(new Error('Could not read image file'))
+    reader.readAsDataURL(file)
+  })
 }
 
 function isPlaceholderProductName(name, barcode) {
@@ -333,6 +348,7 @@ export function ScanPage() {
     setIsMobileDevice(mobile)
 
     void preloadBarcodeScanner()
+    void preloadProductPhotoOcr()
 
     if (API_BASE_URL) {
       try {
@@ -354,7 +370,6 @@ export function ScanPage() {
 
     return () => {
       stopScanner()
-      void terminateProductPhotoOcr()
     }
     // Mount/unmount only — mobile must start camera from a button tap
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -487,12 +502,14 @@ export function ScanPage() {
 
     setIsCompressingImage(true)
     setFormError(null)
+
+    if (runOcr) {
+      void runPhotoOcr(dataUrl)
+    }
+
     try {
       const compressed = await compressImageDataUrl(dataUrl)
       setPendingImages((prev) => [...prev, compressed])
-      if (runOcr) {
-        void runPhotoOcr(compressed)
-      }
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Could not process image')
     } finally {
@@ -533,7 +550,8 @@ export function ScanPage() {
     try {
       const nextImages = [...pendingImages]
       let remainingSlots = MAX_PRODUCT_IMAGES - savedImages.length - nextImages.length
-      let firstCompressed = null
+      const shouldRunOcr = pendingImages.length === 0 && savedImages.length === 0
+      let ocrStarted = false
 
       for (const file of files) {
         if (remainingSlots <= 0) {
@@ -541,20 +559,18 @@ export function ScanPage() {
           break
         }
 
-        const compressed = await compressImageFile(file)
-        if (!firstCompressed) {
-          firstCompressed = compressed
+        const rawDataUrl = await readFileAsDataUrl(file)
+        if (shouldRunOcr && !ocrStarted) {
+          ocrStarted = true
+          void runPhotoOcr(rawDataUrl)
         }
+
+        const compressed = await compressImageDataUrl(rawDataUrl)
         nextImages.push(compressed)
         remainingSlots -= 1
       }
 
       setPendingImages(nextImages)
-
-      const shouldRunOcr = pendingImages.length === 0 && savedImages.length === 0 && firstCompressed
-      if (shouldRunOcr) {
-        void runPhotoOcr(firstCompressed)
-      }
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Could not process image')
     } finally {

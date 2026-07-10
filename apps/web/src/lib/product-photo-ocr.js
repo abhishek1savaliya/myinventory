@@ -1,4 +1,23 @@
+const OCR_MAX_WIDTH = 640
+const OCR_MAX_HEIGHT = 900
+const FAST_OUTPUT = {
+  text: true,
+  blocks: false,
+  layoutBlocks: false,
+  hocr: false,
+  tsv: false,
+  box: false,
+  unlv: false,
+  osd: false,
+  pdf: false,
+  imageColor: false,
+  imageGrey: false,
+  imageBinary: false,
+  debug: false,
+}
+
 let workerPromise = null
+let progressCallback = null
 
 function cleanLine(line) {
   return line.replace(/\s+/g, ' ').trim()
@@ -99,31 +118,84 @@ export function parseProductTextFromOcr(rawText) {
   return result
 }
 
+function loadImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('Could not load image for OCR'))
+    img.src = dataUrl
+  })
+}
+
+async function prepareImageForOcr(imageDataUrl) {
+  const img = await loadImage(imageDataUrl)
+  const scale = Math.min(1, OCR_MAX_WIDTH / img.width, OCR_MAX_HEIGHT / img.height)
+  const width = Math.max(1, Math.round(img.width * scale))
+  const height = Math.max(1, Math.round(img.height * scale))
+
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+
+  const context = canvas.getContext('2d', { willReadFrequently: true })
+  if (!context) {
+    throw new Error('Could not prepare image for OCR')
+  }
+
+  context.filter = 'grayscale(1) contrast(1.15)'
+  context.drawImage(img, 0, 0, width, height)
+
+  return canvas
+}
+
 async function getOcrWorker() {
   if (!workerPromise) {
     workerPromise = (async () => {
-      const { createWorker } = await import('tesseract.js')
-      return createWorker('eng')
+      const { createWorker, OEM, PSM } = await import('tesseract.js')
+      const worker = await createWorker('eng', OEM.LSTM_ONLY, {
+        logger: (message) => {
+          if (
+            message.status === 'recognizing text' &&
+            typeof message.progress === 'number' &&
+            progressCallback
+          ) {
+            progressCallback(message.progress)
+          }
+        },
+      })
+
+      await worker.setParameters({
+        tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
+        preserve_interword_spaces: '1',
+      })
+
+      return worker
     })()
   }
 
   return workerPromise
 }
 
+/** Warm up OCR worker and language data before the user uploads a photo. */
+export function preloadProductPhotoOcr() {
+  void getOcrWorker()
+}
+
 export async function extractProductDetailsFromImage(imageDataUrl, onProgress) {
-  const worker = await getOcrWorker()
+  progressCallback = onProgress ?? null
 
-  const { data } = await worker.recognize(imageDataUrl, {
-    logger: onProgress
-      ? (message) => {
-          if (message.status === 'recognizing text' && typeof message.progress === 'number') {
-            onProgress(message.progress)
-          }
-        }
-      : undefined,
-  })
+  try {
+    const [worker, ocrCanvas] = await Promise.all([
+      getOcrWorker(),
+      prepareImageForOcr(imageDataUrl),
+    ])
 
-  return parseProductTextFromOcr(data.text)
+    const { data } = await worker.recognize(ocrCanvas, { rotateAuto: false }, FAST_OUTPUT)
+
+    return parseProductTextFromOcr(data.text)
+  } finally {
+    progressCallback = null
+  }
 }
 
 export async function terminateProductPhotoOcr() {
