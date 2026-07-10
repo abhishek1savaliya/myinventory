@@ -13,14 +13,41 @@ const prisma = new PrismaClient()
 async function main(): Promise<void> {
   const passwordHash = await bcrypt.hash('Admin123!', 12)
 
+  const organization = await prisma.organization.upsert({
+    where: { slug: 'demo' },
+    update: {
+      name: 'MyInventory Demo',
+      tradingName: 'MyInventory Demo',
+      ownerName: 'System Administrator',
+      email: 'admin@inventoryos.local',
+      contactNumber: '',
+    },
+    create: {
+      id: 'org_default_seed',
+      orgCode: 'DEM10001',
+      slug: 'demo',
+      name: 'MyInventory Demo',
+      tradingName: 'MyInventory Demo',
+      ownerName: 'System Administrator',
+      email: 'admin@inventoryos.local',
+      contactNumber: '',
+    },
+  })
+
   const admin = await prisma.user.upsert({
-    where: { email: 'admin@inventoryos.local' },
+    where: {
+      organizationId_email: {
+        organizationId: organization.id,
+        email: 'admin@inventoryos.local',
+      },
+    },
     update: {
       name: 'System Administrator',
       passwordHash,
       role: UserRole.ADMIN,
     },
     create: {
+      organizationId: organization.id,
       name: 'System Administrator',
       email: 'admin@inventoryos.local',
       passwordHash,
@@ -29,12 +56,18 @@ async function main(): Promise<void> {
   })
 
   const warehouse = await prisma.warehouse.upsert({
-    where: { code: 'MEL-01' },
+    where: {
+      organizationId_code: {
+        organizationId: organization.id,
+        code: 'MEL-01',
+      },
+    },
     update: {
       name: 'Melbourne Distribution Centre',
       address: 'Melbourne, VIC, Australia',
     },
     create: {
+      organizationId: organization.id,
       code: 'MEL-01',
       name: 'Melbourne Distribution Centre',
       address: 'Melbourne, VIC, Australia',
@@ -67,7 +100,12 @@ async function main(): Promise<void> {
   })
 
   const product = await prisma.product.upsert({
-    where: { sku: 'HH-100293' },
+    where: {
+      organizationId_sku: {
+        organizationId: organization.id,
+        sku: 'HH-100293',
+      },
+    },
     update: {
       barcode: '9348291029291',
       name: 'Gold Necklace',
@@ -76,6 +114,7 @@ async function main(): Promise<void> {
       minimumStockLevel: 10,
     },
     create: {
+      organizationId: organization.id,
       sku: 'HH-100293',
       barcode: '9348291029291',
       name: 'Gold Necklace',
@@ -146,12 +185,14 @@ async function main(): Promise<void> {
   })
 
   console.log('[MyInventory Seed] Completed successfully')
-  console.log(`  Admin:     ${admin.email}`)
-  console.log(`  Warehouse: ${warehouse.code} — ${warehouse.name}`)
-  console.log(`  Location:  ${location.code}`)
-  console.log(`  Product:   ${product.sku} (${product.barcode}) — ${product.name}`)
-  console.log(`  Inventory: ${inventory.quantity} units`)
-  console.log(`  Device:    ${windowsDevice.deviceId}`)
+  console.log(`  Organization: ${organization.name} (${organization.orgCode})`)
+  console.log(`  URL slug:     /${organization.slug}/dashboard`)
+  console.log(`  Admin:        ${admin.email}`)
+  console.log(`  Warehouse:    ${warehouse.code} — ${warehouse.name}`)
+  console.log(`  Location:     ${location.code}`)
+  console.log(`  Product:      ${product.sku} (${product.barcode}) — ${product.name}`)
+  console.log(`  Inventory:    ${inventory.quantity} units`)
+  console.log(`  Device:       ${windowsDevice.deviceId}`)
 }
 
 main()

@@ -16,6 +16,9 @@ type UserWithOrganization = User & {
     slug: string
     name: string
     tradingName: string
+    ownerName: string
+    email: string
+    contactNumber: string
   }
 }
 
@@ -47,6 +50,9 @@ export const userWithOrganizationInclude = {
       slug: true,
       name: true,
       tradingName: true,
+      ownerName: true,
+      email: true,
+      contactNumber: true,
     },
   },
 } as const

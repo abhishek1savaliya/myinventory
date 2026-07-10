@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { FEATURE_LABELS } from '@myinventory/shared'
 import { useAuth } from '@/contexts/use-auth'
+import { isOrganizationOwner } from '@/lib/org-owner'
+import { orgWelcomePath } from '@/lib/org-paths'
 import { API_BASE_URL } from '@/lib/api-client'
 import {
   getStoredScanSoundEnabled,
@@ -13,6 +15,9 @@ import {
 import { getStoredTorchPreference, setStoredTorchPreference } from '@/lib/scan-torch'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
+import { CopyableValue } from '@/components/ui/copyable-value'
+import Link from 'next/link'
+import { Button } from '@/components/ui/button'
 
 function SettingToggle({ id, label, description, checked, onChange, disabled = false }) {
   return (
@@ -42,6 +47,8 @@ export function SettingsPage() {
   const { user } = useAuth()
   const [torchOn, setTorchOn] = useState(false)
   const [scanSoundOn, setScanSoundOn] = useState(true)
+  const isOwner = isOrganizationOwner(user)
+  const org = user?.organization
 
   useEffect(() => {
     setTorchOn(getStoredTorchPreference())
@@ -105,6 +112,38 @@ export function SettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      {isOwner && org && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Organization</CardTitle>
+            <CardDescription>
+              You are the registered organization owner. Share the organization ID with your team.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label className="text-[var(--color-muted)]">Organization name</Label>
+                <p className="font-medium text-gray-900">{org.name}</p>
+              </div>
+              <div>
+                <Label className="text-[var(--color-muted)]">Trading name</Label>
+                <p className="font-medium text-gray-900">{org.tradingName}</p>
+              </div>
+            </div>
+            <CopyableValue
+              label="Organization ID"
+              value={org.orgCode}
+              description="Required when signing in"
+              mono
+            />
+            <Button asChild variant="outline" size="sm">
+              <Link href={orgWelcomePath(org.slug)}>View full organization details</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

@@ -18,6 +18,7 @@ import {
   Warehouse,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/use-auth'
+import { orgDashboardPath, orgLoginPath } from '@/lib/org-paths'
 import { Button } from '@/components/ui/button'
 
 const features = [
@@ -91,8 +92,9 @@ const features = [
 const steps = [
   {
     step: '1',
-    title: 'Sign in',
-    description: 'Use the credentials provided by your administrator to access MyInventory.',
+    title: 'Register or sign in',
+    description:
+      'Create your organization or sign in with your organization ID, email, and password.',
   },
   {
     step: '2',
@@ -131,7 +133,10 @@ const roles = [
 ]
 
 export function LandingPage() {
-  const { isAuthenticated, isLoading } = useAuth()
+  const { isAuthenticated, isLoading, user } = useAuth()
+  const dashboardHref = user?.organization?.slug
+    ? orgDashboardPath(user.organization.slug)
+    : null
 
   return (
     <div className="min-h-full bg-[var(--color-background)]">
@@ -147,14 +152,19 @@ export function LandingPage() {
             </div>
           </Link>
           <div className="flex items-center gap-2">
-            {!isLoading && isAuthenticated ? (
+            {!isLoading && isAuthenticated && dashboardHref ? (
               <Button asChild>
-                <Link href="/dashboard">Open dashboard</Link>
+                <Link href={dashboardHref}>Open dashboard</Link>
               </Button>
             ) : (
-              <Button asChild>
-                <Link href="/login">Sign in</Link>
-              </Button>
+              <>
+                <Button asChild variant="outline">
+                  <Link href="/signup">Register</Link>
+                </Button>
+                <Button asChild>
+                  <Link href="/signup">Get started</Link>
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -176,14 +186,21 @@ export function LandingPage() {
                 work.
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                {!isLoading && isAuthenticated ? (
+                {!isLoading && isAuthenticated && dashboardHref ? (
                   <Button asChild size="lg" className="w-full sm:w-auto">
-                    <Link href="/dashboard">Go to dashboard</Link>
+                    <Link href={dashboardHref}>Go to dashboard</Link>
                   </Button>
                 ) : (
-                  <Button asChild size="lg" className="w-full sm:w-auto">
-                    <Link href="/login">Sign in to get started</Link>
-                  </Button>
+                  <>
+                    <Button asChild size="lg" className="w-full sm:w-auto">
+                      <Link href="/signup">Register your organization</Link>
+                    </Button>
+                    {user?.organization?.slug && (
+                      <Button asChild variant="outline" size="lg" className="w-full sm:w-auto">
+                        <Link href={orgLoginPath(user.organization.slug)}>Sign in</Link>
+                      </Button>
+                    )}
+                  </>
                 )}
                 <Button asChild variant="outline" size="lg" className="w-full sm:w-auto">
                   <a href="#features">Explore features</a>
@@ -289,16 +306,16 @@ export function LandingPage() {
           <div className="mx-auto max-w-6xl text-center">
             <h2 className="text-2xl font-semibold text-white sm:text-3xl">Ready to manage your warehouse?</h2>
             <p className="mx-auto mt-3 max-w-xl text-white/80">
-              Sign in with your account to scan barcodes, update inventory, and keep your team in sync.
+              Register your organization or sign in with your organization ID to manage inventory.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              {!isLoading && isAuthenticated ? (
+              {!isLoading && isAuthenticated && dashboardHref ? (
                 <Button
                   asChild
                   size="lg"
                   className="w-full bg-white text-[var(--color-primary)] hover:bg-gray-100 sm:w-auto"
                 >
-                  <Link href="/dashboard">Open dashboard</Link>
+                  <Link href={dashboardHref}>Open dashboard</Link>
                 </Button>
               ) : (
                 <Button
@@ -306,7 +323,7 @@ export function LandingPage() {
                   size="lg"
                   className="w-full bg-white text-[var(--color-primary)] hover:bg-gray-100 sm:w-auto"
                 >
-                  <Link href="/login">Sign in now</Link>
+                  <Link href="/signup">Register your organization</Link>
                 </Button>
               )}
             </div>
@@ -318,11 +335,11 @@ export function LandingPage() {
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 sm:flex-row">
           <p className="text-sm text-[var(--color-muted)]">© {new Date().getFullYear()} MyInventory</p>
           <div className="flex gap-4 text-sm">
-            <Link href="/login" className="text-[var(--color-primary)] hover:underline">
-              Sign in
+            <Link href="/signup" className="text-[var(--color-primary)] hover:underline">
+              Register
             </Link>
-            {!isLoading && isAuthenticated && (
-              <Link href="/dashboard" className="text-[var(--color-primary)] hover:underline">
+            {!isLoading && isAuthenticated && dashboardHref && (
+              <Link href={dashboardHref} className="text-[var(--color-primary)] hover:underline">
                 Dashboard
               </Link>
             )}

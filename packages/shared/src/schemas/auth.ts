@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { UserRole } from '../types/index.js'
 import { AppFeature } from '../types/features.js'
-import { orgCodeSchema } from './organizations.js'
+import { orgCodeSchema, organizationSummarySchema } from './organizations.js'
 
 export const loginSchema = z.object({
   orgId: orgCodeSchema,
@@ -10,14 +10,6 @@ export const loginSchema = z.object({
 })
 
 export type LoginInput = z.infer<typeof loginSchema>
-
-const organizationSummarySchema = z.object({
-  id: z.string(),
-  orgCode: orgCodeSchema,
-  slug: z.string(),
-  name: z.string(),
-  tradingName: z.string(),
-})
 
 export const authUserSchema = z.object({
   id: z.string(),

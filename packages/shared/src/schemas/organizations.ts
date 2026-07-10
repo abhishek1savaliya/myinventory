@@ -23,14 +23,19 @@ export const organizationPublicProfileSchema = z.object({
   tradingName: z.string(),
 })
 
+export const organizationSummarySchema = z.object({
+  id: z.string(),
+  orgCode: orgCodeSchema,
+  slug: z.string(),
+  name: z.string(),
+  tradingName: z.string(),
+  ownerName: z.string(),
+  email: z.string().email(),
+  contactNumber: z.string(),
+})
+
 export const organizationSignupResponseSchema = z.object({
-  organization: z.object({
-    id: z.string(),
-    orgCode: orgCodeSchema,
-    slug: z.string(),
-    name: z.string(),
-    tradingName: z.string(),
-  }),
+  organization: organizationSummarySchema,
   orgCode: orgCodeSchema,
   slug: z.string(),
   ownerEmail: z.string().email(),

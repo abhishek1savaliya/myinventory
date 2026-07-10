@@ -4,6 +4,9 @@ export interface OrganizationSummary {
   slug: string
   name: string
   tradingName: string
+  ownerName: string
+  email: string
+  contactNumber: string
 }
 
 export interface OrganizationSignupResponse {

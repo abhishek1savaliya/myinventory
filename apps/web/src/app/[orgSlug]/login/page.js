@@ -1,5 +1,5 @@
 import { LoginPage } from '@/components/pages/LoginPage'
 
-export default function LoginRoute() {
+export default function OrgLoginRoute() {
   return <LoginPage />
 }

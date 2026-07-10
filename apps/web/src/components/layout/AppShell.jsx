@@ -8,7 +8,8 @@ import { useAuth } from '@/contexts/use-auth'
 import { DisableRequestBanner } from '@/components/users/DisableRequestBanner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { navItems } from '@/lib/nav-items'
+import { getNavItems } from '@/lib/nav-items'
+import { orgDashboardPath } from '@/lib/org-paths'
 
 function NavLink({ href, label, icon: Icon, isActive, onNavigate, compact }) {
   return (
@@ -35,19 +36,29 @@ function NavLink({ href, label, icon: Icon, isActive, onNavigate, compact }) {
   )
 }
 
-function SidebarContent({ pathname, visibleNavItems, user, logout, onNavigate, showHeader = true }) {
+function SidebarContent({
+  pathname,
+  dashboardHref,
+  visibleNavItems,
+  user,
+  logout,
+  onNavigate,
+  showHeader = true,
+}) {
   return (
     <>
       {showHeader && (
         <div className="border-b border-[var(--color-sidebar-border)] px-4 py-4">
           <h1 className="text-lg font-semibold text-[var(--color-primary)]">MyInventory</h1>
-          <p className="text-xs text-[var(--color-muted)]">Warehouse Management</p>
+          <p className="truncate text-xs text-[var(--color-muted)]">
+            {user?.organization?.tradingName ?? 'Warehouse Management'}
+          </p>
         </div>
       )}
       <nav className="flex-1 overflow-y-auto p-2">
         {visibleNavItems.map(({ href, label, icon }) => {
           const isActive =
-            href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href)
+            href === dashboardHref ? pathname === dashboardHref : pathname.startsWith(href)
           return (
             <NavLink
               key={href}
@@ -77,12 +88,13 @@ function SidebarContent({ pathname, visibleNavItems, user, logout, onNavigate, s
   )
 }
 
-export function AppShell({ children }) {
+export function AppShell({ orgSlug, children }) {
   const pathname = usePathname()
   const { user, logout, hasFeature } = useAuth()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
-  const visibleNavItems = navItems.filter((item) => hasFeature(item.feature))
+  const dashboardHref = orgDashboardPath(orgSlug)
+  const visibleNavItems = getNavItems(orgSlug).filter((item) => hasFeature(item.feature))
   const mobileNavItems = visibleNavItems.slice(0, 4)
   const hasMoreNavItems = visibleNavItems.length > 4
 
@@ -104,6 +116,7 @@ export function AppShell({ children }) {
       <aside className="hidden w-56 shrink-0 flex-col border-r border-[var(--color-sidebar-border)] bg-[var(--color-sidebar)] lg:flex">
         <SidebarContent
           pathname={pathname}
+          dashboardHref={dashboardHref}
           visibleNavItems={visibleNavItems}
           user={user}
           logout={logout}
@@ -121,6 +134,7 @@ export function AppShell({ children }) {
           <aside className="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col border-r border-[var(--color-sidebar-border)] bg-[var(--color-sidebar)] shadow-xl lg:hidden">
             <SidebarContent
               pathname={pathname}
+              dashboardHref={dashboardHref}
               visibleNavItems={visibleNavItems}
               user={user}
               logout={logout}
@@ -159,7 +173,7 @@ export function AppShell({ children }) {
           >
             {mobileNavItems.map(({ href, label, icon }) => {
               const isActive =
-            href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href)
+                href === dashboardHref ? pathname === dashboardHref : pathname.startsWith(href)
               return (
                 <NavLink
                   key={href}

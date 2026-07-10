@@ -1,17 +1,19 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/contexts/use-auth'
 import { ApiRequestError, apiFetch } from '@/lib/api-client'
-import { dashboardPath } from '@/lib/org-paths'
+import { orgPostAuthPath } from '@/lib/org-paths'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
-export function LoginPage({ orgSlug }) {
+export function LoginPage() {
+  const params = useParams()
+  const orgSlug = params.orgSlug
   const { login, isAuthenticated, isLoading, user } = useAuth()
   const router = useRouter()
   const [orgProfile, setOrgProfile] = useState(null)
@@ -22,31 +24,16 @@ export function LoginPage({ orgSlug }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
-    let cancelled = false
+    if (!orgSlug) return
 
-    async function loadOrg() {
-      try {
-        const response = await apiFetch(`/api/organizations/by-slug/${orgSlug}`)
-        if (!cancelled) {
-          setOrgProfile(response.data)
-        }
-      } catch {
-        if (!cancelled) {
-          setOrgProfile(null)
-        }
-      }
-    }
-
-    void loadOrg()
-
-    return () => {
-      cancelled = true
-    }
+    apiFetch(`/api/organizations/by-slug/${orgSlug}`)
+      .then((response) => setOrgProfile(response.data))
+      .catch(() => setOrgProfile(null))
   }, [orgSlug])
 
   useEffect(() => {
     if (!isLoading && isAuthenticated && user?.organization?.slug) {
-      router.replace(dashboardPath(user.organization.slug))
+      router.replace(orgPostAuthPath(user))
     }
   }, [isLoading, isAuthenticated, user, router])
 
@@ -61,19 +48,11 @@ export function LoginPage({ orgSlug }) {
 
     try {
       const loggedInUser = await login({
-        orgId: orgId.trim().toUpperCase(),
+        orgId: orgId.toUpperCase().trim(),
         email,
         password,
       })
-
-      if (loggedInUser.organization.slug !== orgSlug) {
-        setError(
-          `This login belongs to ${loggedInUser.organization.name}. Use /${loggedInUser.organization.slug}/login instead.`,
-        )
-        return
-      }
-
-      router.replace(dashboardPath(orgSlug))
+      router.replace(orgPostAuthPath(loggedInUser))
     } catch (err) {
       if (err instanceof ApiRequestError) {
         setError(err.message)
@@ -94,8 +73,8 @@ export function LoginPage({ orgSlug }) {
           </CardTitle>
           <CardDescription>
             {orgProfile
-              ? 'Enter your organization ID, email, and password'
-              : 'Organization sign in'}
+              ? orgProfile.name
+              : 'Enter your organization ID, email, and password'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -109,14 +88,16 @@ export function LoginPage({ orgSlug }) {
               <Label htmlFor="orgId">Organization ID</Label>
               <Input
                 id="orgId"
-                autoComplete="organization"
-                placeholder="e.g. AWS95625"
                 value={orgId}
                 onChange={(e) => setOrgId(e.target.value.toUpperCase())}
+                placeholder="AWS95625"
+                autoComplete="organization"
+                className="font-mono uppercase"
+                maxLength={8}
                 required
               />
               <p className="text-xs text-[var(--color-muted)]">
-                3 letters + 5 numbers — provided when your organization registered
+                3 letters + 5 numbers (e.g. AWS95625)
               </p>
             </div>
             <div className="space-y-2">
@@ -150,6 +131,12 @@ export function LoginPage({ orgSlug }) {
               {isSubmitting ? 'Signing in...' : 'Sign in'}
             </Button>
           </form>
+          <p className="mt-4 text-center text-sm text-[var(--color-muted)]">
+            New organization?{' '}
+            <Link href="/signup" className="text-[var(--color-primary)] hover:underline">
+              Register here
+            </Link>
+          </p>
         </CardContent>
       </Card>
     </div>

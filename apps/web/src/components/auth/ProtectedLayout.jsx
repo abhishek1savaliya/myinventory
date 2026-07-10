@@ -1,19 +1,27 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/use-auth'
+import { orgLoginPath } from '@/lib/org-paths'
 import { AppShell } from '@/components/layout/AppShell'
 
 export function ProtectedLayout({ children }) {
-  const { isAuthenticated, isLoading } = useAuth()
+  const params = useParams()
+  const orgSlug = params.orgSlug
+  const { isAuthenticated, isLoading, user } = useAuth()
   const router = useRouter()
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      router.replace('/login')
+      router.replace(orgLoginPath(orgSlug))
+      return
     }
-  }, [isLoading, isAuthenticated, router])
+
+    if (!isLoading && isAuthenticated && user?.organization?.slug !== orgSlug) {
+      router.replace(orgLoginPath(user?.organization?.slug ?? orgSlug))
+    }
+  }, [isLoading, isAuthenticated, user, orgSlug, router])
 
   if (isLoading) {
     return (
@@ -23,9 +31,9 @@ export function ProtectedLayout({ children }) {
     )
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated || user?.organization?.slug !== orgSlug) {
     return null
   }
 
-  return <AppShell>{children}</AppShell>
+  return <AppShell orgSlug={orgSlug}>{children}</AppShell>
 }
