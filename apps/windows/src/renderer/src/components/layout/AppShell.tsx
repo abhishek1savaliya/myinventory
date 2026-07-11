@@ -13,10 +13,12 @@ import {
   Users,
   Settings,
   LogOut,
+  MessageCircle,
 } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '@renderer/contexts/use-auth'
 import { DisableRequestBanner } from '@renderer/components/users/DisableRequestBanner'
+import { ChatNotificationStack } from '@renderer/components/chat/ChatNotificationStack'
 import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
 
@@ -31,6 +33,7 @@ export const navItems = [
   { to: '/warehouses', label: 'Warehouses', icon: Warehouse, feature: AppFeature.WAREHOUSES },
   { to: '/locations', label: 'Locations', icon: MapPin, feature: AppFeature.LOCATIONS },
   { to: '/transactions', label: 'Transactions', icon: History, feature: AppFeature.TRANSACTIONS },
+  { to: '/chat', label: 'Chat', icon: MessageCircle, feature: AppFeature.CHAT },
   { to: '/users', label: 'Users', icon: Users, feature: AppFeature.USERS },
   { to: '/settings', label: 'Settings', icon: Settings, feature: AppFeature.SETTINGS },
 ] as const
@@ -83,9 +86,10 @@ export function AppShell() {
       </aside>
       <div className="flex flex-1 flex-col overflow-hidden">
         <DisableRequestBanner />
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="relative flex-1 overflow-y-auto p-6">
           <Outlet />
         </main>
+        <ChatNotificationStack />
       </div>
     </div>
   )

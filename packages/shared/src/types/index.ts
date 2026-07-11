@@ -78,6 +78,7 @@ export type {
   OrganizationSummary,
   OrganizationSignupResponse,
   OrganizationPublicProfile,
+  OrganizationSearchResult,
 } from './organization.js'
 export { AppFeature, ALL_APP_FEATURES, FEATURE_LABELS, ROLE_DEFAULT_FEATURES, getEffectiveFeatures, computeExtraFeatures } from './features.js'
 export {

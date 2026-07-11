@@ -6,6 +6,7 @@ import { authenticate, type AuthenticatedRequest } from '../../middleware/auth.j
 import { requireOrgId } from '../../lib/org-context.js'
 import {
   getOrganizationPublicProfile,
+  searchOrganizations,
   signupOrganization,
   updateOrganizationBranding,
 } from './organizations.service.js'
@@ -18,6 +19,15 @@ organizationsRouter.post(
   asyncHandler(async (req, res) => {
     const result = await signupOrganization(req.body)
     res.status(201).json(result)
+  }),
+)
+
+organizationsRouter.get(
+  '/organizations/search',
+  asyncHandler(async (req, res) => {
+    const q = typeof req.query.q === 'string' ? req.query.q : ''
+    const results = await searchOrganizations(q)
+    res.json({ data: results })
   }),
 )
 

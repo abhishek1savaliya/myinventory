@@ -97,18 +97,30 @@ export function initChatSocket(httpServer: HttpServer): Server {
           ? socket.handshake.auth.sessionId
           : undefined) ?? socket.handshake.headers['x-session-id']?.toString()
 
-      if (!sessionId) {
+      const bearerToken =
+        typeof socket.handshake.auth?.token === 'string'
+          ? socket.handshake.auth.token
+          : undefined
+
+      let accessToken: string | undefined
+
+      if (sessionId) {
+        const session = await loadSession(sessionId)
+        if (!session) {
+          next(new Error('Session expired or invalid'))
+          return
+        }
+        accessToken = session.token
+      } else if (bearerToken) {
+        accessToken = bearerToken
+      }
+
+      if (!accessToken) {
         next(new Error('Authentication required'))
         return
       }
 
-      const session = await loadSession(sessionId)
-      if (!session) {
-        next(new Error('Session expired or invalid'))
-        return
-      }
-
-      const payload = verifyAccessToken(session.token)
+      const payload = verifyAccessToken(accessToken)
       const user = await prisma.user.findUnique({
         where: { id: payload.sub },
         select: {

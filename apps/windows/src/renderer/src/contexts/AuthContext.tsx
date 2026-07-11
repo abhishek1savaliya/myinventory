@@ -55,6 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setStoredToken(response.token)
     setUser(response.user)
+    return response.user
   }, [])
 
   const hasRole = useCallback(

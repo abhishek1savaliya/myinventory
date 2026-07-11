@@ -60,3 +60,77 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 
   return response.json() as Promise<T>
 }
+
+function parseXhrResponse(xhr: XMLHttpRequest, token: string | null) {
+  if (xhr.status >= 200 && xhr.status < 300) {
+    if (xhr.status === 204 || !xhr.responseText) {
+      return null
+    }
+
+    try {
+      return JSON.parse(xhr.responseText) as unknown
+    } catch {
+      throw new ApiRequestError('Invalid JSON response', xhr.status, undefined)
+    }
+  }
+
+  let error: { message?: string; details?: unknown } = { message: xhr.statusText }
+  try {
+    error = JSON.parse(xhr.responseText) as { message?: string; details?: unknown }
+  } catch {
+    // keep default message
+  }
+
+  if (xhr.status === 401 && token) {
+    clearStoredToken()
+    onUnauthorized?.()
+  }
+
+  throw new ApiRequestError(
+    error.message ?? `Request failed: ${xhr.status}`,
+    xhr.status,
+    error.details,
+  )
+}
+
+export function apiUploadFormData<T = unknown>(
+  path: string,
+  formData: FormData,
+  onUploadProgress?: (loaded: number, total: number) => void,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const token = tokenGetter()
+    const xhr = new XMLHttpRequest()
+
+    xhr.open('POST', `${API_BASE_URL}${path}`)
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    }
+
+    if (onUploadProgress) {
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable) {
+          onUploadProgress(event.loaded, event.total)
+        }
+      })
+    }
+
+    xhr.addEventListener('load', () => {
+      try {
+        resolve(parseXhrResponse(xhr, token) as T)
+      } catch (error) {
+        reject(error)
+      }
+    })
+
+    xhr.addEventListener('error', () => {
+      reject(new ApiRequestError('Network error', 0, undefined))
+    })
+
+    xhr.addEventListener('abort', () => {
+      reject(new ApiRequestError('Upload aborted', 0, undefined))
+    })
+
+    xhr.send(formData)
+  })
+}

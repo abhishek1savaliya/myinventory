@@ -201,3 +201,36 @@ export async function findOrganizationByOrgCode(orgCode: string) {
     where: { orgCode: orgCode.toUpperCase().trim() },
   })
 }
+
+export async function searchOrganizations(query: string) {
+  const q = query.trim()
+  if (q.length < 2) {
+    return []
+  }
+
+  const lower = q.toLowerCase()
+  const upper = q.toUpperCase()
+
+  const organizations = await prisma.organization.findMany({
+    where: {
+      OR: [
+        { name: { contains: q, mode: 'insensitive' } },
+        { tradingName: { contains: q, mode: 'insensitive' } },
+        { slug: { contains: lower } },
+        { orgCode: { startsWith: upper } },
+      ],
+    },
+    select: {
+      slug: true,
+      name: true,
+      tradingName: true,
+      orgCode: true,
+      logoUrl: true,
+      themeColor: true,
+    },
+    orderBy: [{ tradingName: 'asc' }],
+    take: 20,
+  })
+
+  return organizations
+}

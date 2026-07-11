@@ -27,3 +27,12 @@ export interface OrganizationPublicProfile extends OrganizationBranding {
   name: string
   tradingName: string
 }
+
+export interface OrganizationSearchResult {
+  slug: string
+  name: string
+  tradingName: string
+  orgCode: string
+  logoUrl: string | null
+  themeColor: string | null
+}
