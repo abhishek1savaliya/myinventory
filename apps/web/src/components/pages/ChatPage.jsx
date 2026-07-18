@@ -124,7 +124,10 @@ function UserAvatar({ name, userId, photoUrl, isLive, size = 'md' }) {
   )
 }
 
-function GroupAvatar({ name }) {
+function GroupAvatar({ name, photoUrl }) {
+  if (photoUrl) {
+    return <img src={photoUrl} alt={`${name} group`} className="h-10 w-10 shrink-0 rounded-full object-cover" />
+  }
   return (
     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-800 text-sm font-semibold text-white">
       {name.charAt(0).toUpperCase()}
@@ -179,7 +182,7 @@ function GroupListItem({ group, isActive, onSelect }) {
           : 'border-transparent hover:bg-gray-50',
       )}
     >
-      <GroupAvatar name={group.name} />
+      <GroupAvatar name={group.name} photoUrl={group.photoUrl} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
           <p className="truncate text-sm font-medium text-gray-900">{group.name}</p>
@@ -238,6 +241,7 @@ export function ChatPage() {
     addGroupMembers,
     removeGroupMember,
     updateGroupMemberMute,
+    updateGroupPhoto,
     deleteMessageForMe,
     deleteMessageForEveryone,
     forwardMessage: forwardMessageToUser,
@@ -623,7 +627,7 @@ export function ChatPage() {
                   </Button>
                   {isGroupChat ? (
                     <>
-                      <GroupAvatar name={activeGroup?.name ?? 'G'} />
+                      <GroupAvatar name={activeGroup?.name ?? 'G'} photoUrl={activeGroup?.photoUrl} />
                       <div className="min-w-0 flex-1">
                         <CardTitle className="truncate text-base">
                           {activeGroup?.name ?? 'Group'}
@@ -907,6 +911,10 @@ export function ChatPage() {
         onToggleMute={async (userId, canSend) => {
           if (!activeGroupId) return
           await updateGroupMemberMute(activeGroupId, userId, canSend)
+        }}
+        onUpdatePhoto={async (photo) => {
+          if (!activeGroupId) return
+          await updateGroupPhoto(activeGroupId, photo)
         }}
       />
     </div>

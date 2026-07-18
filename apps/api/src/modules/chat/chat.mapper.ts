@@ -114,6 +114,7 @@ export function mapChatGroupToDto(
     id: string
     organizationId: string
     name: string
+    photoUrl: string | null
     createdById: string
     createdAt: Date
     updatedAt: Date
@@ -131,6 +132,7 @@ export function mapChatGroupToDto(
     id: group.id,
     organizationId: group.organizationId,
     name: group.name,
+    photoUrl: group.photoUrl,
     createdById: group.createdById,
     createdAt: group.createdAt.toISOString(),
     updatedAt: group.updatedAt.toISOString(),

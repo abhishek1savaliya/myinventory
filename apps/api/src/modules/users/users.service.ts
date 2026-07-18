@@ -5,8 +5,11 @@ import type {
   DisableUserResponse,
   UpdateUserFeaturesInput,
   UpdateUserRoleInput,
+  ResetUserPasswordInput,
+  ResetUserPasswordResponse,
   UserDisableRequestDto,
 } from '@myinventory/shared'
+import { randomBytes } from 'node:crypto'
 import { UserRole, UserStatus, computeExtraFeatures, getEffectiveFeatures, AppFeature } from '@myinventory/shared'
 import bcrypt from 'bcryptjs'
 import { prisma } from '@myinventory/prisma'
@@ -334,6 +337,25 @@ export async function activateUser(organizationId: string, targetUserId: string)
   })
 
   return reloadAuthUser(targetUserId)
+}
+
+export async function resetUserPassword(
+  organizationId: string,
+  targetUserId: string,
+  input: ResetUserPasswordInput,
+): Promise<ResetUserPasswordResponse> {
+  await getUserInOrganization(targetUserId, organizationId)
+
+  const temporaryPassword = input.password ?? `Inv-${randomBytes(9).toString('base64url')}`
+  const passwordHash = await bcrypt.hash(temporaryPassword, 12)
+
+  await prisma.user.update({
+    where: { id: targetUserId },
+    data: { passwordHash },
+  })
+  await invalidateUserAuthCache(targetUserId)
+
+  return { temporaryPassword }
 }
 
 export async function updateUserFeatures(

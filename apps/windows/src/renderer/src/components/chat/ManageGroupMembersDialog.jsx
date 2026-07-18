@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Dialog } from '@renderer/components/ui/dialog'
 import { Button } from '@renderer/components/ui/button'
 import { Label } from '@renderer/components/ui/label'
+import { ProfilePhotoCropDialog } from '@renderer/components/settings/ProfilePhotoCropDialog'
 import { cn } from '@renderer/lib/utils'
 
 export function ManageGroupMembersDialog({
@@ -13,10 +14,12 @@ export function ManageGroupMembersDialog({
   onAddMembers,
   onRemoveMember,
   onSetCanSend,
+  onUpdatePhoto,
 }) {
   const [selectedIds, setSelectedIds] = useState(() => new Set())
   const [error, setError] = useState(null)
   const [busyKey, setBusyKey] = useState(null)
+  const [photoCropUrl, setPhotoCropUrl] = useState(null)
 
   const memberIds = useMemo(
     () => new Set((group?.members ?? []).map((member) => member.user.id)),
@@ -34,6 +37,12 @@ export function ManageGroupMembersDialog({
     setError(null)
     setBusyKey(null)
   }, [open, group?.id])
+
+  useEffect(() => {
+    return () => {
+      if (photoCropUrl) URL.revokeObjectURL(photoCropUrl)
+    }
+  }, [photoCropUrl])
 
   function toggleUser(userId) {
     setSelectedIds((prev) => {
@@ -82,15 +91,94 @@ export function ManageGroupMembersDialog({
     }
   }
 
+  function handlePhotoSelected(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setError('Choose a JPEG, PNG, or WebP image.')
+      return
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      setError('Selected image must be 15 MB or smaller.')
+      return
+    }
+    setError(null)
+    setPhotoCropUrl(URL.createObjectURL(file))
+  }
+
+  async function handlePhotoUpload(blob) {
+    setBusyKey('photo')
+    setError(null)
+    try {
+      await onUpdatePhoto(blob)
+      setPhotoCropUrl(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update group photo')
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
+  async function handlePhotoRemove() {
+    setBusyKey('photo')
+    setError(null)
+    try {
+      await onUpdatePhoto(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove group photo')
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title="Manage members"
-      description={group ? `${group.name} · ${group.members.length} members` : undefined}
-      className="max-w-lg"
-    >
-      <div className="space-y-5">
+    <>
+      <ProfilePhotoCropDialog
+        imageUrl={photoCropUrl}
+        busy={busyKey === 'photo'}
+        title="Adjust group photo"
+        onCancel={() => setPhotoCropUrl(null)}
+        onConfirm={handlePhotoUpload}
+      />
+      <Dialog
+        open={open}
+        onClose={onClose}
+        title="Manage group"
+        description={group ? `${group.name} · ${group.members.length} members` : undefined}
+        className="max-w-lg"
+      >
+        <div className="space-y-5">
+          {group && (
+            <div className="flex items-center gap-4 rounded-lg border border-[var(--color-border)] p-3">
+              {group.photoUrl ? (
+                <img src={group.photoUrl} alt={`${group.name} group`} className="h-16 w-16 rounded-full object-cover" />
+              ) : (
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gray-800 text-xl font-semibold text-white">
+                  {group.name.charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button asChild type="button" variant="outline" size="sm" disabled={busyKey !== null}>
+                  <label className="cursor-pointer">
+                    Change photo
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="hidden"
+                      onChange={handlePhotoSelected}
+                      disabled={busyKey !== null}
+                    />
+                  </label>
+                </Button>
+                {group.photoUrl && (
+                  <Button type="button" variant="outline" size="sm" onClick={handlePhotoRemove} disabled={busyKey !== null}>
+                    Remove photo
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
         <div className="space-y-2">
           <Label>Current members</Label>
           <div className="max-h-56 space-y-2 overflow-y-auto rounded-md border border-[var(--color-border)] p-2">
@@ -206,7 +294,8 @@ export function ManageGroupMembersDialog({
             Done
           </Button>
         </div>
-      </div>
-    </Dialog>
+        </div>
+      </Dialog>
+    </>
   )
 }

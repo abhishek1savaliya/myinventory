@@ -120,7 +120,10 @@ function UserAvatar({ name, userId, photoUrl, isLive, size = 'md' }) {
   )
 }
 
-function GroupAvatar({ name }) {
+function GroupAvatar({ name, photoUrl }) {
+  if (photoUrl) {
+    return <img src={photoUrl} alt={`${name} group`} className="h-10 w-10 shrink-0 rounded-full object-cover" />
+  }
   return (
     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-sidebar-active)] text-[var(--color-primary)]">
       <Users className="h-5 w-5" aria-hidden />
@@ -176,7 +179,7 @@ function GroupListItem({ group, isActive, onSelect }) {
           : 'border-transparent hover:bg-gray-50',
       )}
     >
-      <GroupAvatar name={group.name} />
+      <GroupAvatar name={group.name} photoUrl={group.photoUrl} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
           <p className="truncate text-sm font-medium text-gray-900">{group.name}</p>
@@ -231,6 +234,7 @@ export function ChatPage() {
     addGroupMembers,
     removeGroupMember,
     setGroupMemberCanSend,
+    updateGroupPhoto,
     sendMessage,
     sendGroupMessage,
     sendChatAttachment,
@@ -619,7 +623,7 @@ export function ChatPage() {
                   >
                     Back
                   </Button>
-                  <GroupAvatar name={activeGroup?.name ?? 'Group'} />
+                  <GroupAvatar name={activeGroup?.name ?? 'Group'} photoUrl={activeGroup?.photoUrl} />
                   <div className="min-w-0 flex-1">
                     <CardTitle className="truncate text-base">
                       {activeGroup?.name ?? 'Group'}
@@ -1042,6 +1046,10 @@ export function ChatPage() {
         onSetCanSend={async (userId, canSend) => {
           if (!activeGroupId) return
           await setGroupMemberCanSend(activeGroupId, userId, canSend)
+        }}
+        onUpdatePhoto={async (photo) => {
+          if (!activeGroupId) return
+          await updateGroupPhoto(activeGroupId, photo)
         }}
       />
     </div>

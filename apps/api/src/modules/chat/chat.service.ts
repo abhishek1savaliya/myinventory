@@ -675,6 +675,26 @@ export async function updateChatGroup(
   return mapGroupWithActivity(group, userId)
 }
 
+export async function updateChatGroupPhoto(
+  orgId: string,
+  userId: string,
+  role: UserRole,
+  groupId: string,
+  photoUrl: string | null,
+): Promise<{ group: ChatGroupDto; previousPhotoUrl: string | null }> {
+  const existing = await assertGroupManager(orgId, role, groupId)
+  const group = await prisma.chatGroup.update({
+    where: { id: groupId },
+    data: { photoUrl },
+    include: groupInclude,
+  })
+
+  return {
+    group: await mapGroupWithActivity(group, userId),
+    previousPhotoUrl: existing.photoUrl,
+  }
+}
+
 export async function addChatGroupMembers(
   orgId: string,
   actorId: string,

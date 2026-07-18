@@ -1,5 +1,11 @@
 import { Router } from 'express'
-import { UserRole, createUserSchema, updateUserFeaturesSchema, updateUserRoleSchema } from '@myinventory/shared'
+import {
+  UserRole,
+  createUserSchema,
+  resetUserPasswordSchema,
+  updateUserFeaturesSchema,
+  updateUserRoleSchema,
+} from '@myinventory/shared'
 import { asyncHandler } from '../../utils/async-handler.js'
 import { validateBody } from '../../middleware/validate.js'
 import { authenticate, type AuthenticatedRequest } from '../../middleware/auth.js'
@@ -13,6 +19,7 @@ import {
   listIncomingDisableRequests,
   rejectDisableRequest,
   requestDisableUser,
+  resetUserPassword,
   updateUserFeatures,
   updateUserRole,
 } from './users.service.js'
@@ -87,6 +94,18 @@ usersRouter.patch(
     const orgId = requireOrgId(req)
     const updated = await updateUserRole(orgId, req.params.id, user.sub, req.body)
     res.json({ data: updated })
+  }),
+)
+
+usersRouter.post(
+  '/users/:id/reset-password',
+  asyncHandler(authenticate),
+  requireRoles(UserRole.ADMIN),
+  validateBody(resetUserPasswordSchema),
+  asyncHandler(async (req, res) => {
+    const orgId = requireOrgId(req)
+    const result = await resetUserPassword(orgId, req.params.id, req.body)
+    res.json({ data: result })
   }),
 )
 

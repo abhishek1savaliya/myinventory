@@ -355,6 +355,7 @@ model ChatGroup {
   id             String   @id @default(cuid())
   organizationId String   @map("organization_id")
   name           String
+  photoUrl       String?  @map("photo_url")
   createdById    String   @map("created_by_id")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")

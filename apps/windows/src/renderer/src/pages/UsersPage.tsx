@@ -10,6 +10,7 @@ import { Dialog } from '@renderer/components/ui/dialog'
 import { StatusBadge } from '@renderer/components/ui/status-badge'
 import { UserFeaturesDialog } from '@renderer/components/users/UserFeaturesDialog'
 import { UserRoleDialog } from '@renderer/components/users/UserRoleDialog'
+import { ResetUserPasswordDialog } from '@renderer/components/users/ResetUserPasswordDialog'
 
 const ROLES = [
   { value: UserRole.ADMIN, label: 'Admin' },
@@ -39,6 +40,7 @@ function UserTable({
   onActivate,
   onManageFeatures,
   onChangeRole,
+  onResetPassword,
 }: {
   users: AuthUser[]
   currentUserId?: string
@@ -46,6 +48,7 @@ function UserTable({
   onActivate?: (user: AuthUser) => void
   onManageFeatures?: (user: AuthUser) => void
   onChangeRole?: (user: AuthUser) => void
+  onResetPassword?: (user: AuthUser) => void
 }) {
   if (users.length === 0) {
     return <p className="text-sm text-[var(--color-muted)]">No users in this list.</p>
@@ -92,6 +95,11 @@ function UserTable({
                       Features
                     </Button>
                   )}
+                  {onResetPassword && (
+                    <Button variant="outline" size="sm" onClick={() => onResetPassword(user)}>
+                      Reset password
+                    </Button>
+                  )}
                   {onDisable && user.status === UserStatus.ACTIVE && user.id !== currentUserId && (
                     <Button variant="outline" size="sm" onClick={() => void onDisable(user)}>
                       {user.role === UserRole.ADMIN ? 'Request disable' : 'Disable'}
@@ -125,6 +133,8 @@ export function UsersPage() {
   const [featuresOpen, setFeaturesOpen] = useState(false)
   const [roleUser, setRoleUser] = useState<AuthUser | null>(null)
   const [roleOpen, setRoleOpen] = useState(false)
+  const [passwordUser, setPasswordUser] = useState<AuthUser | null>(null)
+  const [passwordOpen, setPasswordOpen] = useState(false)
 
   const activeUsers = useMemo(
     () => users.filter((user) => user.status === UserStatus.ACTIVE),
@@ -246,6 +256,10 @@ export function UsersPage() {
                 setRoleUser(user)
                 setRoleOpen(true)
               }}
+              onResetPassword={(user) => {
+                setPasswordUser(user)
+                setPasswordOpen(true)
+              }}
             />
           </section>
 
@@ -257,6 +271,10 @@ export function UsersPage() {
               onManageFeatures={(user) => {
                 setFeaturesUser(user)
                 setFeaturesOpen(true)
+              }}
+              onResetPassword={(user) => {
+                setPasswordUser(user)
+                setPasswordOpen(true)
               }}
             />
           </section>
@@ -339,6 +357,12 @@ export function UsersPage() {
         open={roleOpen}
         onClose={() => setRoleOpen(false)}
         onSaved={() => void loadUsers()}
+      />
+
+      <ResetUserPasswordDialog
+        user={passwordUser}
+        open={passwordOpen}
+        onClose={() => setPasswordOpen(false)}
       />
     </div>
   )

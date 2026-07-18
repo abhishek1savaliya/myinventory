@@ -140,6 +140,7 @@ export interface ChatGroupDto {
   id: string
   organizationId: string
   name: string
+  photoUrl: string | null
   createdById: string
   createdAt: string
   updatedAt: string

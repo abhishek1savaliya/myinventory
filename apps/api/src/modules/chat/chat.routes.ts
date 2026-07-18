@@ -38,9 +38,11 @@ import {
   sendChatAttachmentMessage,
   sendChatMessage,
   updateChatGroup,
+  updateChatGroupPhoto,
   updateChatGroupMemberCanSend,
 } from './chat.service.js'
-import { chatAttachmentUpload } from './chat.upload.js'
+import { chatAttachmentUpload, chatGroupPhotoUpload } from './chat.upload.js'
+import { deleteProfilePhoto, uploadChatGroupPhoto } from '../../lib/profile-photos.js'
 import {
   emitChatGroupMembershipUpdated,
   emitChatGroupMessage,
@@ -155,6 +157,66 @@ chatRouter.patch(
       actorId: user.sub,
     })
     res.json({ data: group })
+  }),
+)
+
+chatRouter.post(
+  '/chat/groups/:groupId/photo',
+  asyncHandler(authenticate),
+  requireFeatures(AppFeature.CHAT),
+  requireRoles(...groupManageRoles),
+  chatGroupPhotoUpload.single('photo'),
+  asyncHandler(async (req, res) => {
+    const { user } = req as AuthenticatedRequest
+    const orgId = requireOrgId(req)
+    if (!req.file) {
+      throw new AppError(400, 'Choose a group photo to upload')
+    }
+
+    await getChatGroup(orgId, user.sub, user.role, req.params.groupId)
+    const photoUrl = await uploadChatGroupPhoto(orgId, req.params.groupId, req.file)
+    const result = await updateChatGroupPhoto(
+      orgId,
+      user.sub,
+      user.role,
+      req.params.groupId,
+      photoUrl,
+    )
+    await deleteProfilePhoto(result.previousPhotoUrl)
+    emitChatGroupMembershipUpdated({
+      groupId: result.group.id,
+      group: result.group,
+      addedUserIds: [],
+      removedUserIds: [],
+      actorId: user.sub,
+    })
+    res.json({ data: result.group })
+  }),
+)
+
+chatRouter.delete(
+  '/chat/groups/:groupId/photo',
+  asyncHandler(authenticate),
+  requireFeatures(AppFeature.CHAT),
+  requireRoles(...groupManageRoles),
+  asyncHandler(async (req, res) => {
+    const { user } = req as AuthenticatedRequest
+    const result = await updateChatGroupPhoto(
+      requireOrgId(req),
+      user.sub,
+      user.role,
+      req.params.groupId,
+      null,
+    )
+    await deleteProfilePhoto(result.previousPhotoUrl)
+    emitChatGroupMembershipUpdated({
+      groupId: result.group.id,
+      group: result.group,
+      addedUserIds: [],
+      removedUserIds: [],
+      actorId: user.sub,
+    })
+    res.json({ data: result.group })
   }),
 )
 

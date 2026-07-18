@@ -10,7 +10,13 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
 }
 
-export function ProfilePhotoCropDialog({ imageUrl, busy, onCancel, onConfirm }) {
+export function ProfilePhotoCropDialog({
+  imageUrl,
+  busy,
+  onCancel,
+  onConfirm,
+  title = 'Adjust profile photo',
+}) {
   const imageRef = useRef(null)
   const dragRef = useRef(null)
   const [imageSize, setImageSize] = useState(null)
@@ -103,7 +109,7 @@ export function ProfilePhotoCropDialog({ imageUrl, busy, onCancel, onConfirm }) 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4">
       <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl">
-        <h3 className="text-lg font-semibold text-gray-900">Adjust profile photo</h3>
+        <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
         <p className="mt-1 text-sm text-[var(--color-muted)]">
           Drag the photo to reposition it, then zoom in or out.
         </p>

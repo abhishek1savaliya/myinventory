@@ -972,6 +972,27 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [canUseChat, upsertGroup],
   )
 
+  const updateGroupPhoto = useCallback(
+    async (groupId, photo) => {
+      if (!canUseChat || !groupId) return null
+
+      const response = photo
+        ? await apiUploadFormData(
+            `/api/chat/groups/${groupId}/photo`,
+            (() => {
+              const formData = new FormData()
+              formData.append('photo', photo, 'group-photo.jpg')
+              return formData
+            })(),
+          )
+        : await apiFetch(`/api/chat/groups/${groupId}/photo`, { method: 'DELETE' })
+
+      upsertGroup(response.data)
+      return response.data
+    },
+    [canUseChat, upsertGroup],
+  )
+
   const deleteMessageForMe = useCallback(
     async (partnerId, messageId) => {
       if (!canUseChat || !partnerId || !messageId || messageId.startsWith('temp-')) return
@@ -1263,6 +1284,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       addGroupMembers,
       removeGroupMember,
       setGroupMemberCanSend,
+      updateGroupPhoto,
       sendMessage,
       sendGroupMessage,
       sendChatAttachment,
@@ -1304,6 +1326,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       addGroupMembers,
       removeGroupMember,
       setGroupMemberCanSend,
+      updateGroupPhoto,
       sendMessage,
       sendGroupMessage,
       sendChatAttachment,

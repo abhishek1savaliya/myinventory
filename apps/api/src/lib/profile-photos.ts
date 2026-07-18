@@ -48,6 +48,29 @@ export async function uploadProfilePhoto(
   return supabaseAdmin.storage.from(env.supabaseProfilePhotosBucket).getPublicUrl(objectPath).data.publicUrl
 }
 
+export async function uploadChatGroupPhoto(
+  organizationId: string,
+  groupId: string,
+  file: Express.Multer.File,
+): Promise<string> {
+  if (!ALLOWED_TYPES.has(file.mimetype)) {
+    throw new AppError(400, 'Group photo must be a JPEG, PNG, or WebP image')
+  }
+  if (!file.buffer.length || file.buffer.length > MAX_PROFILE_PHOTO_BYTES) {
+    throw new AppError(400, 'Group photo must be 3 MB or smaller')
+  }
+
+  await ensureProfilePhotosBucket()
+  const extension = file.mimetype === 'image/png' ? 'png' : file.mimetype === 'image/webp' ? 'webp' : 'jpg'
+  const objectPath = `${organizationId}/groups/${groupId}-${randomUUID()}.${extension}`
+  const { error } = await supabaseAdmin.storage
+    .from(env.supabaseProfilePhotosBucket)
+    .upload(objectPath, file.buffer, { contentType: file.mimetype, upsert: false })
+
+  if (error) throw new AppError(500, `Failed to upload group photo: ${error.message}`)
+  return supabaseAdmin.storage.from(env.supabaseProfilePhotosBucket).getPublicUrl(objectPath).data.publicUrl
+}
+
 export async function deleteProfilePhoto(publicUrl: string | null | undefined): Promise<void> {
   if (!publicUrl) return
   try {
