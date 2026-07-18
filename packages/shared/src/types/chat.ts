@@ -4,9 +4,10 @@ export enum ChatAttachmentType {
   FILE = 'FILE',
 }
 
-export const CHAT_MAX_IMAGE_BYTES = 6 * 1024 * 1024
-export const CHAT_MAX_VIDEO_BYTES = 100 * 1024 * 1024
-export const CHAT_MAX_FILE_BYTES = 10 * 1024 * 1024
+export const CHAT_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
+export const CHAT_MAX_IMAGE_BYTES = CHAT_MAX_ATTACHMENT_BYTES
+export const CHAT_MAX_VIDEO_BYTES = CHAT_MAX_ATTACHMENT_BYTES
+export const CHAT_MAX_FILE_BYTES = CHAT_MAX_ATTACHMENT_BYTES
 
 export interface ChatUserSummary {
   id: string

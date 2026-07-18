@@ -75,6 +75,7 @@ export type {
 } from './chat.js'
 export {
   ChatAttachmentType,
+  CHAT_MAX_ATTACHMENT_BYTES,
   CHAT_MAX_IMAGE_BYTES,
   CHAT_MAX_VIDEO_BYTES,
   CHAT_MAX_FILE_BYTES,

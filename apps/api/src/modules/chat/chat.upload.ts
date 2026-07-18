@@ -1,10 +1,10 @@
 import multer from 'multer'
-import { CHAT_MAX_VIDEO_BYTES } from '@myinventory/shared'
+import { CHAT_MAX_ATTACHMENT_BYTES } from '@myinventory/shared'
 
 export const chatAttachmentUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: CHAT_MAX_VIDEO_BYTES,
+    fileSize: CHAT_MAX_ATTACHMENT_BYTES,
     files: 1,
   },
 })
