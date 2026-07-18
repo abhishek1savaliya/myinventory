@@ -6,8 +6,11 @@ import { ProtectedRoute } from '@renderer/components/auth/ProtectedRoute'
 import { RoleRoute } from '@renderer/components/auth/RoleRoute'
 import { FeatureRoute } from '@renderer/components/auth/FeatureRoute'
 import { AppShell } from '@renderer/components/layout/AppShell'
-import { OrganizationSearchPage } from '@renderer/pages/OrganizationSearchPage'
 import { OrgLoginPage } from '@renderer/pages/OrgLoginPage'
+import { OrganizationSearchPage } from '@renderer/pages/OrganizationSearchPage'
+import { SignupPage } from '@renderer/pages/SignupPage'
+import { SettingsPage } from '@renderer/pages/SettingsPage'
+import { OrganizationWelcomePage } from '@renderer/pages/OrganizationWelcomePage'
 import { HomePage } from '@renderer/pages/HomePage'
 import { ProductsPage } from '@renderer/pages/ProductsPage'
 import { WarehousesPage } from '@renderer/pages/WarehousesPage'
@@ -16,6 +19,7 @@ import { InventoryPage } from '@renderer/pages/InventoryPage'
 import { TransactionsPage } from '@renderer/pages/TransactionsPage'
 import { UsersPage } from '@renderer/pages/UsersPage'
 import { ChatPage } from '@renderer/pages/ChatPage'
+import { ScanPage } from '@renderer/pages/ScanPage'
 import { FeaturePage } from '@renderer/pages/FeaturePage'
 
 export default function App() {
@@ -26,6 +30,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<OrganizationSearchPage />} />
           <Route path="/login/:orgSlug" element={<OrgLoginPage />} />
+          <Route path="/signup" element={<SignupPage />} />
           <Route element={<ProtectedRoute />}>
             <Route element={<AppShell />}>
               <Route path="/" element={<HomePage />} />
@@ -33,7 +38,7 @@ export default function App() {
                 path="/scan"
                 element={
                   <FeatureRoute feature={AppFeature.SCAN}>
-                    <FeaturePage title="Scan" description="Barcode scanning for warehouse operations." />
+                    <ScanPage />
                   </FeatureRoute>
                 }
               />
@@ -106,6 +111,22 @@ export default function App() {
                 element={
                   <FeatureRoute feature={AppFeature.CHAT}>
                     <ChatPage />
+                  </FeatureRoute>
+                }
+              />
+              <Route
+                path="/welcome"
+                element={
+                  <FeatureRoute feature={AppFeature.SETTINGS}>
+                    <OrganizationWelcomePage />
+                  </FeatureRoute>
+                }
+              />
+              <Route
+                path="/settings"
+                element={
+                  <FeatureRoute feature={AppFeature.SETTINGS}>
+                    <SettingsPage />
                   </FeatureRoute>
                 }
               />

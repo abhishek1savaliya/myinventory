@@ -14,7 +14,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    try {
+      await apiFetch('/api/auth/logout', { method: 'POST' })
+    } catch {
+      // Clear local session even if API logout fails
+    }
     clearStoredToken()
     setUser(null)
   }, [])
@@ -25,17 +30,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!token) {
       setUser(null)
       setIsLoading(false)
-      return
+      return null
     }
 
     try {
       const response = await apiFetch<{ user: AuthUser }>('/api/auth/me')
       setUser(response.user)
+      return response.user
     } catch {
       clearStoredToken()
       setUser(null)
+      return null
     } finally {
       setIsLoading(false)
+    }
+  }, [])
+
+  const refreshUser = useCallback(async () => {
+    const token = getStoredToken()
+    if (!token) {
+      setUser(null)
+      return null
+    }
+
+    try {
+      const response = await apiFetch<{ user: AuthUser }>('/api/auth/me')
+      setUser(response.user)
+      return response.user
+    } catch {
+      clearStoredToken()
+      setUser(null)
+      return null
     }
   }, [])
 
@@ -81,10 +106,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoading,
       login,
       logout,
+      refreshUser,
       hasRole,
       hasFeature,
     }),
-    [user, isLoading, login, logout, hasRole, hasFeature],
+    [user, isLoading, login, logout, refreshUser, hasRole, hasFeature],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

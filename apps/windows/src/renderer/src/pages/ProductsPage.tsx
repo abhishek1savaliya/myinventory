@@ -7,6 +7,7 @@ import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import { Label } from '@renderer/components/ui/label'
 import { Dialog } from '@renderer/components/ui/dialog'
+import { ProductDetailDialog } from '@renderer/components/products/ProductDetailDialog'
 import { StatusBadge } from '@renderer/components/ui/status-badge'
 
 interface ProductFormState {
@@ -40,6 +41,8 @@ export function ProductsPage() {
   const [form, setForm] = useState<ProductFormState>(emptyForm)
   const [formError, setFormError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [detailProductId, setDetailProductId] = useState<string | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
 
   const loadProducts = useCallback(async () => {
     setIsLoading(true)
@@ -83,6 +86,11 @@ export function ProductsPage() {
     })
     setFormError(null)
     setDialogOpen(true)
+  }
+
+  function openDetail(product: ProductDto) {
+    setDetailProductId(product.id)
+    setDetailOpen(true)
   }
 
   async function handleSave() {
@@ -181,7 +189,11 @@ export function ProductsPage() {
             </thead>
             <tbody>
               {products.map((product) => (
-                <tr key={product.id} className="border-b border-[var(--color-border)] last:border-0">
+                <tr
+                  key={product.id}
+                  className="cursor-pointer border-b border-[var(--color-border)] last:border-0 hover:bg-gray-50"
+                  onClick={() => openDetail(product)}
+                >
                   <td className="px-4 py-3 font-medium">{product.sku}</td>
                   <td className="px-4 py-3 font-mono text-xs">{product.barcode}</td>
                   <td className="px-4 py-3">{product.name}</td>
@@ -191,7 +203,7 @@ export function ProductsPage() {
                     <StatusBadge status={product.status} />
                   </td>
                   {canManage && (
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex gap-2">
                         <Button variant="outline" size="sm" onClick={() => openEdit(product)}>
                           Edit
@@ -210,6 +222,14 @@ export function ProductsPage() {
           </table>
         </div>
       )}
+
+      <ProductDetailDialog
+        productId={detailProductId}
+        open={detailOpen}
+        onClose={() => setDetailOpen(false)}
+        onEdit={openEdit}
+        canManage={canManage}
+      />
 
       <Dialog
         open={dialogOpen}

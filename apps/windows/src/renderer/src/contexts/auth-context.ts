@@ -6,7 +6,8 @@ export interface AuthContextValue {
   isAuthenticated: boolean
   isLoading: boolean
   login: (input: LoginInput) => Promise<AuthUser>
-  logout: () => void
+  logout: () => Promise<void>
+  refreshUser: () => Promise<AuthUser | null>
   hasRole: (...roles: UserRole[]) => boolean
   hasFeature: (feature: AppFeature) => boolean
 }

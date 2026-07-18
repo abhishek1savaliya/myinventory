@@ -53,11 +53,18 @@ function getAudioContext() {
     audioContext = new AudioCtx()
   }
 
-  if (audioContext.state === 'suspended') {
-    void audioContext.resume()
+  return audioContext
+}
+
+async function getRunningAudioContext() {
+  const context = getAudioContext()
+  if (!context) return null
+
+  if (context.state === 'suspended') {
+    await context.resume()
   }
 
-  return audioContext
+  return context.state === 'running' ? context : null
 }
 
 function playTone(ctx, frequency, start, duration, peakGain, type = 'sine') {
@@ -77,16 +84,20 @@ function playTone(ctx, frequency, start, duration, peakGain, type = 'sine') {
 }
 
 /** Warm up audio after a user gesture (required on mobile). */
-export function initChatAudio() {
-  getAudioContext()
+export async function initChatAudio() {
+  try {
+    await getRunningAudioContext()
+  } catch {
+    // A later user interaction can retry audio initialization.
+  }
 }
 
 /** Short pop when you send a message. */
-export function playChatSentSound() {
+export async function playChatSentSound() {
   try {
     if (!getStoredChatSoundEnabled()) return
 
-    const ctx = getAudioContext()
+    const ctx = await getRunningAudioContext()
     if (!ctx) return
 
     const now = ctx.currentTime
@@ -102,11 +113,11 @@ export function playChatSentSound() {
  * @param {{ inConversation?: boolean }} [options]
  * - inConversation: softer tone when you are already viewing that chat
  */
-export function playChatIncomingSound({ inConversation = false } = {}) {
+export async function playChatIncomingSound({ inConversation = false } = {}) {
   try {
     if (!getStoredChatSoundEnabled()) return
 
-    const ctx = getAudioContext()
+    const ctx = await getRunningAudioContext()
     if (!ctx) return
 
     const now = ctx.currentTime

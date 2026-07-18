@@ -3,6 +3,7 @@ import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-route
 import type { OrganizationPublicProfile } from '@myinventory/shared'
 import { useAuth } from '@renderer/contexts/use-auth'
 import { ApiRequestError, apiFetch } from '@renderer/lib/api-client'
+import { orgPostAuthPath } from '@renderer/lib/org-paths'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import { Label } from '@renderer/components/ui/label'
@@ -54,12 +55,12 @@ export function OrgLoginPage() {
     setIsSubmitting(true)
 
     try {
-      await login({
+      const loggedInUser = await login({
         orgId: orgId.toUpperCase().trim(),
         email,
         password,
       })
-      navigate('/', { replace: true })
+      navigate(orgPostAuthPath(loggedInUser), { replace: true })
     } catch (err) {
       if (err instanceof ApiRequestError) {
         setError(err.message)

@@ -14,6 +14,7 @@
   "dependencies": {
     "@myinventory/shared": "*",
     "@radix-ui/react-slot": "^1.2.0",
+    "@zxing/browser": "^0.2.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.487.0",
@@ -21,7 +22,8 @@
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.5.0",
     "socket.io-client": "^4.8.3",
-    "tailwind-merge": "^3.2.0"
+    "tailwind-merge": "^3.2.0",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@electron-toolkit/preload": "^3.0.1",
@@ -48,7 +50,9 @@
       "output": "release"
     },
     "win": {
-      "target": ["nsis"]
+      "target": [
+        "nsis"
+      ]
     },
     "nsis": {
       "oneClick": false,

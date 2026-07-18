@@ -19,8 +19,40 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '@renderer/contexts/use-auth'
 import { DisableRequestBanner } from '@renderer/components/users/DisableRequestBanner'
 import { ChatNotificationStack } from '@renderer/components/chat/ChatNotificationStack'
+import type { AuthUser } from '@myinventory/shared'
+import { OrgThemeScope } from '@renderer/components/theme/OrgThemeScope'
 import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
+
+function OrganizationBrand({ user }: { user: AuthUser | null }) {
+  const org = user?.organization
+  if (!org) {
+    return (
+      <>
+        <h1 className="text-lg font-semibold text-[var(--color-primary)]">MyInventory</h1>
+        <p className="text-xs text-[var(--color-muted)]">Warehouse Management</p>
+      </>
+    )
+  }
+
+  const initial = (org.tradingName || org.name || 'O').charAt(0).toUpperCase()
+
+  return (
+    <div className="flex items-center gap-3">
+      {org.logoUrl ? (
+        <img src={org.logoUrl} alt="" className="h-9 w-9 rounded-lg object-contain" />
+      ) : (
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--color-primary)] text-sm font-semibold text-[var(--color-primary-foreground)]">
+          {initial}
+        </div>
+      )}
+      <div className="min-w-0">
+        <h1 className="truncate text-sm font-semibold text-[var(--color-primary)]">{org.tradingName}</h1>
+        <p className="truncate text-xs text-[var(--color-muted)]">{org.name}</p>
+      </div>
+    </div>
+  )
+}
 
 export const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, feature: AppFeature.DASHBOARD },
@@ -44,11 +76,10 @@ export function AppShell() {
   const visibleNavItems = navItems.filter((item) => hasFeature(item.feature))
 
   return (
-    <div className="flex h-full">
+    <OrgThemeScope themeColor={user?.organization?.themeColor} className="flex h-full">
       <aside className="flex w-56 shrink-0 flex-col border-r border-[var(--color-sidebar-border)] bg-[var(--color-sidebar)]">
         <div className="border-b border-[var(--color-sidebar-border)] px-4 py-4">
-          <h1 className="text-lg font-semibold text-[var(--color-primary)]">MyInventory</h1>
-          <p className="text-xs text-[var(--color-muted)]">Warehouse Management</p>
+          <OrganizationBrand user={user} />
         </div>
         <nav className="flex-1 overflow-y-auto p-2">
           {visibleNavItems.map(({ to, label, icon: Icon }) => (
@@ -91,6 +122,6 @@ export function AppShell() {
         </main>
         <ChatNotificationStack />
       </div>
-    </div>
+    </OrgThemeScope>
   )
 }

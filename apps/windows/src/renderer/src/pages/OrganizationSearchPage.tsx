@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Building2, Search } from 'lucide-react'
 import type { OrganizationSearchResult } from '@myinventory/shared'
 import { ApiRequestError, apiFetch } from '@renderer/lib/api-client'
@@ -42,9 +42,9 @@ export function OrganizationSearchPage() {
           setHasSearched(true)
           if (err instanceof ApiRequestError) {
             setError(err.message)
-          } else {
-            setError('Could not search organizations. Please try again.')
+            return
           }
+          setError('Could not search organizations. Please try again.')
         })
         .finally(() => {
           setIsSearching(false)
@@ -153,6 +153,12 @@ export function OrganizationSearchPage() {
                 </button>
               ))}
           </div>
+        </CardContent>
+        <CardContent className="border-t border-[var(--color-border)] pt-4 text-center text-sm text-[var(--color-muted)]">
+          New organization?{' '}
+          <Link to="/signup" className="font-medium text-[var(--color-primary)] hover:underline">
+            Register here
+          </Link>
         </CardContent>
       </Card>
     </div>
