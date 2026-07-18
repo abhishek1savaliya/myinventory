@@ -105,6 +105,7 @@ model User {
   organizationId String     @map("organization_id")
   name           String
   email          String
+  profilePhotoUrl String?   @map("profile_photo_url")
   passwordHash   String     @map("password_hash")
   role           UserRole   @default(WAREHOUSE_USER)
   status         UserStatus @default(ACTIVE)

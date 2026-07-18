@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { MessageCircle, Paperclip, Plus, Send, Users } from 'lucide-react'
-import { UserRole, getChatMessagePreview, formatChatLastSeen } from '@myinventory/shared'
+import { UserRole, getChatMessagePreview, formatChatLastSeen, getChatUserColor } from '@myinventory/shared'
 import { ChatMessageActionsMenu } from '@/components/chat/ChatMessageActionsMenu'
 import { CreateGroupDialog } from '@/components/chat/CreateGroupDialog'
 import { ForwardMessageDialog } from '@/components/chat/ForwardMessageDialog'
@@ -93,12 +93,24 @@ function PresenceStatus({ isLive, lastSeenAt }) {
   )
 }
 
-function UserAvatar({ name, isLive }) {
+function UserAvatar({ name, userId, photoUrl, isLive, size = 'md' }) {
+  const sizeClass = size === 'sm' ? 'h-8 w-8 text-xs' : 'h-10 w-10 text-sm'
   return (
     <div className="relative shrink-0">
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-primary)] text-sm font-semibold text-[var(--color-primary-foreground)]">
-        {name.charAt(0).toUpperCase()}
-      </div>
+      {photoUrl ? (
+        <img
+          src={photoUrl}
+          alt={`${name}'s profile`}
+          className={cn(sizeClass, 'rounded-full object-cover')}
+        />
+      ) : (
+        <div
+          className={cn('flex items-center justify-center rounded-full font-semibold text-white', sizeClass)}
+          style={{ backgroundColor: getChatUserColor(userId) }}
+        >
+          {name.charAt(0).toUpperCase()}
+        </div>
+      )}
       {typeof isLive === 'boolean' && (
         <span
           className={cn(
@@ -132,7 +144,7 @@ function UserListItem({ user, isActive, isLive, lastSeenAt, unreadCount, subtitl
           : 'border-transparent hover:bg-gray-50',
       )}
     >
-      <UserAvatar name={user.name} isLive={isLive} />
+      <UserAvatar name={user.name} userId={user.id} photoUrl={user.profilePhotoUrl} isLive={isLive} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
           <p className="truncate text-sm font-medium text-gray-900">{user.name}</p>
@@ -265,6 +277,7 @@ export function ChatPage() {
         id: conversation.partnerId,
         name: conversation.partnerName,
         email: conversation.partnerEmail,
+        profilePhotoUrl: conversation.partnerProfilePhotoUrl,
         role: conversation.partnerRole,
         unreadCount: conversation.unreadCount,
         subtitle: conversation.lastMessage
@@ -631,18 +644,26 @@ export function ChatPage() {
                       )}
                     </>
                   ) : (
-                    <div className="min-w-0">
-                      <CardTitle className="truncate text-base">{activeUser?.name}</CardTitle>
-                      <div className="flex items-center gap-2">
-                        <CardDescription className="truncate">{activeUser?.email}</CardDescription>
-                        <PresenceStatus
-                          isLive={isUserLive(activePartnerId)}
-                          lastSeenAt={
-                            getUserLastSeen(activePartnerId) ?? activeUser?.lastSeenAt ?? null
-                          }
-                        />
+                    <>
+                      <UserAvatar
+                        name={activeUser?.name ?? 'User'}
+                        userId={activeUser?.id}
+                        photoUrl={activeUser?.profilePhotoUrl}
+                        isLive={isUserLive(activePartnerId)}
+                      />
+                      <div className="min-w-0">
+                        <CardTitle className="truncate text-base">{activeUser?.name}</CardTitle>
+                        <div className="flex items-center gap-2">
+                          <CardDescription className="truncate">{activeUser?.email}</CardDescription>
+                          <PresenceStatus
+                            isLive={isUserLive(activePartnerId)}
+                            lastSeenAt={
+                              getUserLastSeen(activePartnerId) ?? activeUser?.lastSeenAt ?? null
+                            }
+                          />
+                        </div>
                       </div>
-                    </div>
+                    </>
                   )}
                 </div>
               </CardHeader>
@@ -670,8 +691,16 @@ export function ChatPage() {
                       return (
                         <div
                           key={message.id}
-                          className={cn('flex', isMine ? 'justify-end' : 'justify-start')}
+                          className={cn('flex items-end gap-2', isMine ? 'justify-end' : 'justify-start')}
                         >
+                          {!isMine && (
+                            <UserAvatar
+                              name={message.senderName ?? activeUser?.name ?? 'User'}
+                              userId={message.senderId}
+                              photoUrl={message.senderProfilePhotoUrl ?? activeUser?.profilePhotoUrl}
+                              size="sm"
+                            />
+                          )}
                           <div
                             role={canShowMenu ? 'button' : undefined}
                             tabIndex={canShowMenu ? 0 : undefined}
@@ -703,7 +732,10 @@ export function ChatPage() {
                             )}
                           >
                             {isGroupChat && !isMine && (
-                              <p className="mb-1 text-[11px] font-semibold text-[var(--color-primary)]">
+                              <p
+                                className="mb-1 text-[11px] font-semibold"
+                                style={{ color: getChatUserColor(message.senderId) }}
+                              >
                                 {message.senderName ?? 'User'}
                               </p>
                             )}

@@ -20,7 +20,7 @@ type MessageSource = ChatMessage & {
   deletedForEveryoneAt?: Date | null
   hiddenForSenderAt?: Date | null
   hiddenForRecipientAt?: Date | null
-  sender?: { id?: string; name: string }
+  sender?: { id?: string; name: string; profilePhotoUrl?: string | null }
   recipient?: { name: string } | null
   replyTo?:
     | (ChatMessage & {
@@ -72,6 +72,7 @@ export function mapChatMessageToDto(message: MessageSource): ChatMessageDto {
     forwardedFromId: message.forwardedFromId ?? null,
     isDeletedForEveryone,
     senderName: message.sender?.name,
+    senderProfilePhotoUrl: message.sender?.profilePhotoUrl ?? null,
     recipientName: message.recipient?.name,
   }
 }
@@ -93,6 +94,7 @@ type GroupMemberSource = {
     id: string
     name: string
     email: string
+    profilePhotoUrl?: string | null
     role: string
     chatLastSeenAt?: Date | null
   }
@@ -143,6 +145,7 @@ export function mapChatUserToSummary(user: {
   id: string
   name: string
   email: string
+    profilePhotoUrl?: string | null
   role: string
   chatLastSeenAt?: Date | null
 }): ChatUserSummary {
@@ -150,13 +153,14 @@ export function mapChatUserToSummary(user: {
     id: user.id,
     name: user.name,
     email: user.email,
+    profilePhotoUrl: user.profilePhotoUrl ?? null,
     role: user.role,
     lastSeenAt: user.chatLastSeenAt?.toISOString() ?? null,
   }
 }
 
 export function mapConversationToSummary(input: {
-  partner: { id: string; name: string; email: string; role: string }
+  partner: { id: string; name: string; email: string; profilePhotoUrl?: string | null; role: string }
   lastMessage: ChatMessageDto | null
   unreadCount: number
 }): ChatConversationSummary {
@@ -164,6 +168,7 @@ export function mapConversationToSummary(input: {
     partnerId: input.partner.id,
     partnerName: input.partner.name,
     partnerEmail: input.partner.email,
+    partnerProfilePhotoUrl: input.partner.profilePhotoUrl ?? null,
     partnerRole: input.partner.role,
     lastMessage: input.lastMessage,
     unreadCount: input.unreadCount,

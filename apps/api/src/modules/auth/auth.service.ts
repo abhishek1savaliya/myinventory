@@ -97,6 +97,16 @@ export async function getUserById(id: string): Promise<AuthUser> {
   return mapUserToAuthUser(user)
 }
 
+export async function updateUserProfilePhoto(id: string, profilePhotoUrl: string | null): Promise<AuthUser> {
+  const user = await prisma.user.update({
+    where: { id },
+    data: { profilePhotoUrl },
+    include: userWithOrganizationInclude,
+  })
+
+  return mapUserToAuthUser(user)
+}
+
 export async function listUsers(organizationId: string): Promise<AuthUser[]> {
   const users = await prisma.user.findMany({
     where: { organizationId },

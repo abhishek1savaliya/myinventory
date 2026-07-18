@@ -12,6 +12,7 @@ export interface ChatUserSummary {
   id: string
   name: string
   email: string
+  profilePhotoUrl: string | null
   role: string
   lastSeenAt: string | null
 }
@@ -44,6 +45,7 @@ export interface ChatMessageDto {
   forwardedFromId: string | null
   isDeletedForEveryone: boolean
   senderName?: string
+  senderProfilePhotoUrl?: string | null
   recipientName?: string
 }
 
@@ -98,10 +100,30 @@ export function formatChatLastSeen(iso: string, now = new Date()): string {
   })
 }
 
+export const CHAT_USER_COLORS = [
+  '#2563eb',
+  '#7c3aed',
+  '#db2777',
+  '#dc2626',
+  '#ea580c',
+  '#059669',
+  '#0891b2',
+  '#4f46e5',
+] as const
+
+export function getChatUserColor(userId = ''): string {
+  let hash = 0
+  for (let index = 0; index < userId.length; index += 1) {
+    hash = ((hash << 5) - hash + userId.charCodeAt(index)) | 0
+  }
+  return CHAT_USER_COLORS[Math.abs(hash) % CHAT_USER_COLORS.length]
+}
+
 export interface ChatConversationSummary {
   partnerId: string
   partnerName: string
   partnerEmail: string
+  partnerProfilePhotoUrl: string | null
   partnerRole: string
   lastMessage: ChatMessageDto | null
   unreadCount: number

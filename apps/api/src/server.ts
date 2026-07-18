@@ -13,6 +13,7 @@ import {
 import { ensureSessionBucket } from './lib/session-storage.js'
 import { ensureProductImagesBucket } from './lib/product-images.js'
 import { ensureOrgBrandingBucket } from './lib/org-branding.js'
+import { ensureProfilePhotosBucket } from './lib/profile-photos.js'
 import { ensureChatAttachmentsBucket } from './lib/chat-attachments.js'
 import { checkRedisConnection } from './lib/redis.js'
 import { initChatSocket } from './modules/chat/chat.socket.js'
@@ -38,6 +39,7 @@ async function startServer(): Promise<void> {
       ensureSessionBucket(),
       ensureProductImagesBucket(),
       ensureOrgBrandingBucket(),
+      ensureProfilePhotosBucket(),
       ensureChatAttachmentsBucket(),
       checkRedisConnection(),
     ])
@@ -46,6 +48,7 @@ async function startServer(): Promise<void> {
     console.log('[MyInventory API] Session storage ready')
     console.log('[MyInventory API] Supabase product-images storage ready')
     console.log('[MyInventory API] Supabase org-branding storage ready')
+    console.log('[MyInventory API] Supabase profile-photos storage ready')
     console.log('[MyInventory API] Supabase chat-attachments storage ready')
     console.log('[MyInventory API] Redis cache connected')
   } catch (error) {

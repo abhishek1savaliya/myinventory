@@ -18,8 +18,8 @@ import {
 } from './chat.mapper.js'
 
 const messageInclude = {
-  sender: { select: { id: true, name: true, email: true, role: true } },
-  recipient: { select: { id: true, name: true, email: true, role: true } },
+  sender: { select: { id: true, name: true, email: true, profilePhotoUrl: true, role: true } },
+  recipient: { select: { id: true, name: true, email: true, profilePhotoUrl: true, role: true } },
   replyTo: {
     include: {
       sender: { select: { id: true, name: true } },
@@ -71,7 +71,7 @@ async function assertChatPartner(orgId: string, partnerId: string, currentUserId
       organizationId: orgId,
       status: 'ACTIVE',
     },
-    select: { id: true, name: true, email: true, role: true },
+    select: { id: true, name: true, email: true, profilePhotoUrl: true, role: true },
   })
 
   if (!partner) {
@@ -88,7 +88,7 @@ export async function listChatUsers(orgId: string, currentUserId: string) {
       status: 'ACTIVE',
       id: { not: currentUserId },
     },
-    select: { id: true, name: true, email: true, role: true, chatLastSeenAt: true },
+    select: { id: true, name: true, email: true, profilePhotoUrl: true, role: true, chatLastSeenAt: true },
     orderBy: [{ name: 'asc' }, { email: 'asc' }],
   })
 
@@ -464,6 +464,7 @@ const groupMemberInclude = {
       id: true,
       name: true,
       email: true,
+      profilePhotoUrl: true,
       role: true,
       chatLastSeenAt: true,
     },

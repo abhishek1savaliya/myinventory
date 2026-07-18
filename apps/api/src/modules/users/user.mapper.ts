@@ -32,6 +32,7 @@ export function mapUserToAuthUser(user: UserWithOrganization): AuthUser {
     id: user.id,
     name: user.name,
     email: user.email,
+    profilePhotoUrl: user.profilePhotoUrl,
     role: user.role as UserRole,
     status: user.status as UserStatus,
     createdAt: user.createdAt.toISOString(),

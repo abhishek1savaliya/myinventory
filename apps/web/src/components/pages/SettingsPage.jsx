@@ -1,11 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AppFeature, FEATURE_LABELS } from '@myinventory/shared'
+import { AppFeature, FEATURE_LABELS, getChatUserColor } from '@myinventory/shared'
 import { useAuth } from '@/contexts/use-auth'
 import { isOrganizationOwner } from '@/lib/org-owner'
 import { orgWelcomePath } from '@/lib/org-paths'
-import { API_BASE_URL } from '@/lib/api-client'
+import { API_BASE_URL, apiFetch, apiUploadFormData } from '@/lib/api-client'
 import {
   getStoredScanSoundEnabled,
   getStoredScanSoundVolume,
@@ -62,6 +62,8 @@ export function SettingsPage() {
   const [scanSoundVolume, setScanSoundVolume] = useState(100)
   const [chatSoundOn, setChatSoundOn] = useState(true)
   const [chatSoundVolume, setChatSoundVolume] = useState(100)
+  const [profilePhotoBusy, setProfilePhotoBusy] = useState(false)
+  const [profilePhotoError, setProfilePhotoError] = useState('')
   const isOwner = isOrganizationOwner(user)
   const org = user?.organization
   const canUseChat = hasFeature(AppFeature.CHAT)
@@ -127,6 +129,46 @@ export function SettingsPage() {
     playChatIncomingSound({ inConversation: false })
   }
 
+  async function handleProfilePhotoChange(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setProfilePhotoError('Choose a JPEG, PNG, or WebP image.')
+      return
+    }
+    if (file.size > 3 * 1024 * 1024) {
+      setProfilePhotoError('Profile photo must be 3 MB or smaller.')
+      return
+    }
+
+    setProfilePhotoBusy(true)
+    setProfilePhotoError('')
+    try {
+      const formData = new FormData()
+      formData.append('photo', file)
+      await apiUploadFormData('/api/auth/profile-photo', formData)
+      await refreshUser()
+    } catch (error) {
+      setProfilePhotoError(error instanceof Error ? error.message : 'Failed to upload profile photo')
+    } finally {
+      setProfilePhotoBusy(false)
+    }
+  }
+
+  async function handleRemoveProfilePhoto() {
+    setProfilePhotoBusy(true)
+    setProfilePhotoError('')
+    try {
+      await apiFetch('/api/auth/profile-photo', { method: 'DELETE' })
+      await refreshUser()
+    } catch (error) {
+      setProfilePhotoError(error instanceof Error ? error.message : 'Failed to remove profile photo')
+    } finally {
+      setProfilePhotoBusy(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -142,6 +184,51 @@ export function SettingsPage() {
           <CardDescription>Your signed-in profile</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
+          <div className="flex flex-wrap items-center gap-4 rounded-lg border border-[var(--color-border)] p-3">
+            {user?.profilePhotoUrl ? (
+              <img
+                src={user.profilePhotoUrl}
+                alt="Your profile"
+                className="h-16 w-16 rounded-full object-cover"
+              />
+            ) : (
+              <div
+                className="flex h-16 w-16 items-center justify-center rounded-full text-xl font-semibold text-white"
+                style={{ backgroundColor: getChatUserColor(user?.id) }}
+              >
+                {user?.name?.charAt(0).toUpperCase() ?? '?'}
+              </div>
+            )}
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-2">
+                <Button asChild type="button" variant="outline" size="sm" disabled={profilePhotoBusy}>
+                  <label className="cursor-pointer">
+                    {profilePhotoBusy ? 'Uploading…' : 'Upload profile photo'}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="hidden"
+                      onChange={handleProfilePhotoChange}
+                      disabled={profilePhotoBusy}
+                    />
+                  </label>
+                </Button>
+                {user?.profilePhotoUrl && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRemoveProfilePhoto}
+                    disabled={profilePhotoBusy}
+                  >
+                    Remove
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-[var(--color-muted)]">JPEG, PNG, or WebP. Maximum 3 MB.</p>
+              {profilePhotoError && <p className="text-xs text-red-600">{profilePhotoError}</p>}
+            </div>
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <Label className="text-[var(--color-muted)]">Name</Label>

@@ -1,5 +1,6 @@
 'use client'
 
+import { getChatUserColor } from '@myinventory/shared'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -30,9 +31,20 @@ export function ForwardMessageDialog({ open, users, currentPartnerId, onSelect, 
                   'flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-gray-50',
                 )}
               >
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-primary)] text-sm font-semibold text-[var(--color-primary-foreground)]">
-                  {user.name.charAt(0).toUpperCase()}
-                </div>
+                {user.profilePhotoUrl ? (
+                  <img
+                    src={user.profilePhotoUrl}
+                    alt={`${user.name}'s profile`}
+                    className="h-9 w-9 rounded-full object-cover"
+                  />
+                ) : (
+                  <div
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold text-white"
+                    style={{ backgroundColor: getChatUserColor(user.id) }}
+                  >
+                    {user.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-gray-900">{user.name}</p>
                   <p className="truncate text-xs text-[var(--color-muted)]">{user.email}</p>

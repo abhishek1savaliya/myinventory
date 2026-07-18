@@ -78,9 +78,11 @@ export {
   CHAT_MAX_IMAGE_BYTES,
   CHAT_MAX_VIDEO_BYTES,
   CHAT_MAX_FILE_BYTES,
+  CHAT_USER_COLORS,
   getChatDeliveryStatus,
   getChatMessagePreview,
   formatChatLastSeen,
+  getChatUserColor,
 } from './chat.js'
 export type {
   OrganizationBranding,
