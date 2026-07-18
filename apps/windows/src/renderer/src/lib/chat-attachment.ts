@@ -49,7 +49,7 @@ export function validateChatFile(file) {
         : type === ChatAttachmentType.VIDEO
           ? 'Video'
           : 'File'
-    return `${label} must be ${limitMb} MB or smaller`
+    return limitMb === 50 ? 'Max size is 50 MB' : `${label} must be ${limitMb} MB or smaller`
   }
 
   return null

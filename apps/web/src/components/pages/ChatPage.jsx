@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { MessageCircle, Paperclip, Plus, Send, Users } from 'lucide-react'
-import { UserRole, getChatMessagePreview, formatChatLastSeen, getChatUserColor } from '@myinventory/shared'
+import {
+  CHAT_MAX_ATTACHMENT_BYTES,
+  UserRole,
+  getChatMessagePreview,
+  formatChatLastSeen,
+  getChatUserColor,
+} from '@myinventory/shared'
 import { ChatMessageActionsMenu } from '@/components/chat/ChatMessageActionsMenu'
 import { CreateGroupDialog } from '@/components/chat/CreateGroupDialog'
 import { ForwardMessageDialog } from '@/components/chat/ForwardMessageDialog'
@@ -12,6 +18,10 @@ import { ChatReplyBar } from '@/components/chat/ChatReplyBar'
 import { MessageStatusTicks } from '@/components/chat/MessageStatusTicks'
 import { ChatMessageContent } from '@/components/chat/ChatMessageContent'
 import { validateChatFile } from '@/lib/chat-attachment'
+import {
+  CHAT_VIDEO_COMPRESSION_MAX_INPUT_BYTES,
+  compressChatVideo,
+} from '@/lib/compress-chat-video'
 import { useChat } from '@/contexts/use-chat'
 import { useAuth } from '@/contexts/use-auth'
 import { Button } from '@/components/ui/button'
@@ -206,6 +216,7 @@ export function ChatPage() {
   const [draft, setDraft] = useState('')
   const [sendError, setSendError] = useState(null)
   const [uploadProgress, setUploadProgress] = useState(null)
+  const [transferLabel, setTransferLabel] = useState('Uploading…')
   const [showSidebarOnMobile, setShowSidebarOnMobile] = useState(true)
   const [replyToMessage, setReplyToMessage] = useState(null)
   const [menuState, setMenuState] = useState({ open: false, message: null, x: 0, y: 0 })
@@ -410,19 +421,42 @@ export function ChatPage() {
     fileInputRef.current?.click()
   }
 
-  function handleFileChange(event) {
-    const file = event.target.files?.[0]
+  async function handleFileChange(event) {
+    let file = event.target.files?.[0]
     event.target.value = ''
 
     if (!file || (!activePartnerId && !activeGroupId) || isMuted) return
 
+    const needsVideoCompression =
+      file.type.startsWith('video/') && file.size > CHAT_MAX_ATTACHMENT_BYTES
+
+    if (needsVideoCompression) {
+      if (file.size > CHAT_VIDEO_COMPRESSION_MAX_INPUT_BYTES) {
+        setSendError('Max size is 50 MB')
+        return
+      }
+
+      setSendError(null)
+      setTransferLabel('Compressing video…')
+      setUploadProgress(0)
+      try {
+        file = await compressChatVideo(file, setUploadProgress)
+      } catch {
+        setUploadProgress(null)
+        setSendError('Max size is 50 MB')
+        return
+      }
+    }
+
     const validationError = validateChatFile(file)
     if (validationError) {
+      setUploadProgress(null)
       setSendError(validationError)
       return
     }
 
     setSendError(null)
+    setTransferLabel('Uploading…')
     setUploadProgress(0)
 
     const uploadPromise = isGroupChat
@@ -443,15 +477,14 @@ export function ChatPage() {
           },
         })
 
-    void uploadPromise
-      .then(() => {
-        setDraft('')
-        setUploadProgress(null)
-      })
-      .catch((error) => {
-        setUploadProgress(null)
-        setSendError(error instanceof Error ? error.message : 'Could not upload file')
-      })
+    try {
+      await uploadPromise
+      setDraft('')
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'Could not upload file')
+    } finally {
+      setUploadProgress(null)
+    }
   }
 
   async function handleForwardSelect(targetPartnerId) {
@@ -788,7 +821,7 @@ export function ChatPage() {
                   {uploadProgress !== null && (
                     <div className="mb-3">
                       <div className="mb-1 flex justify-between text-xs text-[var(--color-muted)]">
-                        <span>Uploading…</span>
+                        <span>{transferLabel}</span>
                         <span>{uploadProgress}%</span>
                       </div>
                       <div className="h-2 overflow-hidden rounded-full bg-gray-200">
