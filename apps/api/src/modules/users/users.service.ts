@@ -12,6 +12,7 @@ import bcrypt from 'bcryptjs'
 import { prisma } from '@myinventory/prisma'
 import { AppError } from '../../middleware/error-handler.js'
 import { invalidateUserAuthCache } from '../../lib/user-auth-cache.js'
+import { handleChatUserDisabled } from '../chat/chat.socket.js'
 import { mapUserToAuthUser, toPrismaFeatures, userWithOrganizationInclude } from './user.mapper.js'
 
 type DisableRequestWithUsers = UserDisableRequest & {
@@ -200,6 +201,9 @@ export async function requestDisableUser(
     data: { status: UserStatus.INACTIVE },
   })
 
+  await invalidateUserAuthCache(targetUserId)
+  await handleChatUserDisabled(organizationId, targetUserId)
+
   return {
     disabled: true,
     message: `${target.name} has been disabled`,
@@ -275,6 +279,9 @@ export async function acceptDisableRequest(
       data: { status: 'CANCELLED', resolvedAt: new Date() },
     }),
   ])
+
+  await invalidateUserAuthCache(request.targetUserId)
+  await handleChatUserDisabled(organizationId, request.targetUserId)
 
   return {
     disabled: true,

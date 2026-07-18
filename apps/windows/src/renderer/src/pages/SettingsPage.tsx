@@ -29,6 +29,7 @@ import { CopyableValue } from '@renderer/components/ui/CopyableValue'
 import { Link } from 'react-router-dom'
 import { Button } from '@renderer/components/ui/button'
 import { LoginBrandingSettings } from '@renderer/components/settings/LoginBrandingSettings'
+import { ProfilePhotoCropDialog } from '@renderer/components/settings/ProfilePhotoCropDialog'
 
 function SettingToggle({ id, label, description, checked, onChange, disabled = false }) {
   return (
@@ -63,6 +64,7 @@ export function SettingsPage() {
   const [chatSoundVolume, setChatSoundVolume] = useState(100)
   const [profilePhotoBusy, setProfilePhotoBusy] = useState(false)
   const [profilePhotoError, setProfilePhotoError] = useState('')
+  const [profilePhotoCropUrl, setProfilePhotoCropUrl] = useState(null)
   const isOwner = isOrganizationOwner(user)
   const org = user?.organization
   const canUseChat = hasFeature(AppFeature.CHAT)
@@ -74,6 +76,12 @@ export function SettingsPage() {
     setChatSoundOn(getStoredChatSoundEnabled())
     setChatSoundVolume(getStoredChatSoundVolume())
   }, [])
+
+  useEffect(() => {
+    return () => {
+      if (profilePhotoCropUrl) URL.revokeObjectURL(profilePhotoCropUrl)
+    }
+  }, [profilePhotoCropUrl])
 
   function handleTorchChange(enabled) {
     setTorchOn(enabled)
@@ -128,7 +136,7 @@ export function SettingsPage() {
     playChatIncomingSound({ inConversation: false })
   }
 
-  async function handleProfilePhotoChange(event) {
+  function handleProfilePhotoChange(event) {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
@@ -136,18 +144,24 @@ export function SettingsPage() {
       setProfilePhotoError('Choose a JPEG, PNG, or WebP image.')
       return
     }
-    if (file.size > 3 * 1024 * 1024) {
-      setProfilePhotoError('Profile photo must be 3 MB or smaller.')
+    if (file.size > 15 * 1024 * 1024) {
+      setProfilePhotoError('Selected image must be 15 MB or smaller.')
       return
     }
 
+    setProfilePhotoCropUrl(URL.createObjectURL(file))
+    setProfilePhotoError('')
+  }
+
+  async function handleProfilePhotoCrop(blob) {
     setProfilePhotoBusy(true)
     setProfilePhotoError('')
     try {
       const formData = new FormData()
-      formData.append('photo', file)
+      formData.append('photo', blob, 'profile-photo.jpg')
       await apiUploadFormData('/api/auth/profile-photo', formData)
       await refreshUser()
+      setProfilePhotoCropUrl(null)
     } catch (error) {
       setProfilePhotoError(error instanceof Error ? error.message : 'Failed to upload profile photo')
     } finally {
@@ -170,6 +184,12 @@ export function SettingsPage() {
 
   return (
     <div className="space-y-6">
+      <ProfilePhotoCropDialog
+        imageUrl={profilePhotoCropUrl}
+        busy={profilePhotoBusy}
+        onCancel={() => setProfilePhotoCropUrl(null)}
+        onConfirm={handleProfilePhotoCrop}
+      />
       <div>
         <h2 className="text-xl font-semibold text-gray-900 sm:text-2xl">Settings</h2>
         <p className="text-sm text-[var(--color-muted)]">
@@ -220,7 +240,9 @@ export function SettingsPage() {
                   </Button>
                 )}
               </div>
-              <p className="text-xs text-[var(--color-muted)]">JPEG, PNG, or WebP. Maximum 3 MB.</p>
+              <p className="text-xs text-[var(--color-muted)]">
+                JPEG, PNG, or WebP. Select, crop, reposition, and zoom before upload.
+              </p>
               {profilePhotoError && <p className="text-xs text-red-600">{profilePhotoError}</p>}
             </div>
           </div>

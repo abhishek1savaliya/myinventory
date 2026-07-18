@@ -18,8 +18,8 @@ import {
 } from './chat.mapper.js'
 
 const messageInclude = {
-  sender: { select: { id: true, name: true, email: true, profilePhotoUrl: true, role: true } },
-  recipient: { select: { id: true, name: true, email: true, profilePhotoUrl: true, role: true } },
+  sender: { select: { id: true, name: true, email: true, profilePhotoUrl: true, role: true, status: true } },
+  recipient: { select: { id: true, name: true, email: true, profilePhotoUrl: true, role: true, status: true } },
   replyTo: {
     include: {
       sender: { select: { id: true, name: true } },
@@ -159,6 +159,7 @@ export async function listConversations(
     const partner =
       message.senderId === userId ? message.recipient : message.sender
     if (!partner || conversations.has(partner.id)) continue
+    if (partner.status && partner.status !== 'ACTIVE') continue
 
     conversations.set(
       partner.id,
@@ -893,5 +894,36 @@ export async function getChatGroupIdsForUser(orgId: string, userId: string): Pro
     where: { userId, group: { organizationId: orgId } },
     select: { groupId: true },
   })
+  return memberships.map((membership) => membership.groupId)
+}
+
+export async function getChatGroupSnapshot(
+  orgId: string,
+  groupId: string,
+  viewerId: string,
+): Promise<ChatGroupDto | null> {
+  const group = await prisma.chatGroup.findFirst({
+    where: { id: groupId, organizationId: orgId },
+    include: groupInclude,
+  })
+  if (!group) return null
+  return mapGroupWithActivity(group, viewerId)
+}
+
+export async function removeUserFromAllChatGroups(
+  orgId: string,
+  userId: string,
+): Promise<string[]> {
+  const memberships = await prisma.chatGroupMember.findMany({
+    where: { userId, group: { organizationId: orgId } },
+    select: { groupId: true },
+  })
+
+  if (memberships.length === 0) return []
+
+  await prisma.chatGroupMember.deleteMany({
+    where: { userId, group: { organizationId: orgId } },
+  })
+
   return memberships.map((membership) => membership.groupId)
 }

@@ -13,11 +13,13 @@ import { loadSession } from '../../lib/session-storage.js'
 import { verifyAccessToken } from '../../utils/jwt.js'
 import {
   getChatGroupIdsForUser,
+  getChatGroupSnapshot,
   getOrgChatLastSeenMap,
   markChatGroupRead,
   markConversationRead,
   markMessageDelivered,
   recordChatLastSeen,
+  removeUserFromAllChatGroups,
   sendChatGroupMessage,
   sendChatMessage,
 } from './chat.service.js'
@@ -409,4 +411,40 @@ export function emitChatMessageDeleted(input: {
 
 export function getChatIo(): Server | null {
   return chatIo
+}
+
+/**
+ * Called when a user is disabled: removes them from every chat group, notifies
+ * the affected groups in real time, tells the org to refresh its chat lists,
+ * and force-disconnects the disabled user's live chat sockets.
+ */
+export async function handleChatUserDisabled(orgId: string, userId: string): Promise<void> {
+  const affectedGroupIds = await removeUserFromAllChatGroups(orgId, userId)
+
+  if (!chatIo) return
+
+  for (const groupId of affectedGroupIds) {
+    const group = await getChatGroupSnapshot(orgId, groupId, userId)
+    if (!group) continue
+
+    emitChatGroupMembershipUpdated({
+      groupId,
+      group,
+      addedUserIds: [],
+      removedUserIds: [userId],
+      actorId: userId,
+    })
+  }
+
+  // Tell everyone in the org to refresh their user/conversation lists so the
+  // disabled user disappears from DMs without needing a manual reload.
+  chatIo.to(`org:${orgId}`).emit('chat:user-disabled', { userId })
+
+  // Kick the disabled user's own chat sockets.
+  const sockets = chatIo.sockets.adapter.rooms.get(`user:${userId}`)
+  for (const socketId of [...(sockets ?? [])]) {
+    const socket = chatIo.sockets.sockets.get(socketId)
+    socket?.emit('chat:disabled')
+    socket?.disconnect(true)
+  }
 }

@@ -1105,6 +1105,25 @@ export function ChatProvider({ children }) {
       }
     }
 
+    const onUserDisabled = (payload) => {
+      const removedId = payload?.userId
+      if (removedId) {
+        if (activePartnerRef.current === removedId) {
+          setActivePartnerId(null)
+        }
+        setMessagesByPartner((prev) => {
+          if (!prev[removedId]) return prev
+          const next = { ...prev }
+          delete next[removedId]
+          return next
+        })
+        setNotifications((prev) => prev.filter((item) => item.partnerId !== removedId))
+      }
+      void refreshUsersRef.current()
+      void refreshConversationsRef.current()
+      void refreshGroupsRef.current()
+    }
+
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
     socket.on('chat:message', onMessage)
@@ -1114,6 +1133,7 @@ export function ChatProvider({ children }) {
     socket.on('chat:delivered', onDelivered)
     socket.on('chat:message-deleted', onMessageDeleted)
     socket.on('chat:group:membership-updated', onMembershipUpdated)
+    socket.on('chat:user-disabled', onUserDisabled)
     socket.on('chat:presence:sync', onPresenceSync)
 
     if (socket.connected) {
@@ -1130,6 +1150,7 @@ export function ChatProvider({ children }) {
       socket.off('chat:delivered', onDelivered)
       socket.off('chat:message-deleted', onMessageDeleted)
       socket.off('chat:group:membership-updated', onMembershipUpdated)
+      socket.off('chat:user-disabled', onUserDisabled)
       socket.off('chat:presence:sync', onPresenceSync)
 
       if (isOnChatPageRef.current) {
