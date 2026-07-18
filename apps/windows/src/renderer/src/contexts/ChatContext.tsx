@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment -- matches existing chat provider style */
 // @ts-nocheck
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
@@ -10,16 +11,23 @@ import { classifyChatFile } from '@renderer/lib/chat-attachment'
 import { useAuth } from '@renderer/contexts/use-auth'
 import { ChatContext } from './chat-context'
 
-function upsertNotification(prev, { partnerId, partnerName, preview }) {
-  const existing = prev.find((item) => item.partnerId === partnerId)
+function notificationMatches(item, { partnerId, groupId }) {
+  if (groupId) return item.groupId === groupId
+  if (partnerId) return item.partnerId === partnerId && !item.groupId
+  return false
+}
+
+function upsertNotification(prev, { partnerId, groupId, partnerName, preview }) {
+  const existing = prev.find((item) => notificationMatches(item, { partnerId, groupId }))
 
   if (existing) {
     return prev.map((item) =>
-      item.partnerId === partnerId
+      notificationMatches(item, { partnerId, groupId })
         ? {
             ...item,
             count: item.count + 1,
             preview,
+            partnerName,
             updatedAt: Date.now(),
           }
         : item,
@@ -30,6 +38,7 @@ function upsertNotification(prev, { partnerId, partnerName, preview }) {
     ...prev,
     {
       partnerId,
+      groupId,
       partnerName,
       preview,
       count: 1,
@@ -38,19 +47,31 @@ function upsertNotification(prev, { partnerId, partnerName, preview }) {
   ]
 }
 
+function sumUnread(conversations, groups) {
+  const dmUnread = conversations.reduce((sum, item) => sum + (item.unreadCount ?? 0), 0)
+  const groupUnread = groups.reduce((sum, item) => sum + (item.unreadCount ?? 0), 0)
+  return dmUnread + groupUnread
+}
+
 export function ChatProvider({ children }: { children: ReactNode }) {
   const { user, hasFeature } = useAuth()
   const location = useLocation()
   const socketRef = useRef(null)
   const activePartnerRef = useRef(null)
+  const activeGroupRef = useRef(null)
   const isOnChatPageRef = useRef(false)
   const userIdRef = useRef(user?.id)
+  const conversationsRef = useRef([])
+  const groupsRef = useRef([])
 
   const [isConnected, setIsConnected] = useState(false)
   const [chatUsers, setChatUsers] = useState([])
   const [conversations, setConversations] = useState([])
+  const [groups, setGroups] = useState([])
   const [messagesByPartner, setMessagesByPartner] = useState({})
+  const [messagesByGroup, setMessagesByGroup] = useState({})
   const [activePartnerId, setActivePartnerIdState] = useState(null)
+  const [activeGroupId, setActiveGroupIdState] = useState(null)
   const [isOnChatPage, setIsOnChatPage] = useState(false)
   const [notifications, setNotifications] = useState([])
   const [totalUnread, setTotalUnread] = useState(0)
@@ -58,6 +79,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [lastSeenByUserId, setLastSeenByUserId] = useState({})
 
   userIdRef.current = user?.id
+  conversationsRef.current = conversations
+  groupsRef.current = groups
 
   const canUseChat = Boolean(user && hasFeature(AppFeature.CHAT))
   const isChatRoute = location.pathname.includes('/chat')
@@ -65,6 +88,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const setActivePartnerId = useCallback((partnerId) => {
     activePartnerRef.current = partnerId
     setActivePartnerIdState(partnerId)
+    if (partnerId) {
+      activeGroupRef.current = null
+      setActiveGroupIdState(null)
+    }
+  }, [])
+
+  const setActiveGroupId = useCallback((groupId) => {
+    activeGroupRef.current = groupId
+    setActiveGroupIdState(groupId)
+    if (groupId) {
+      activePartnerRef.current = null
+      setActivePartnerIdState(null)
+    }
   }, [])
 
   const emitPresence = useCallback((inChat) => {
@@ -105,11 +141,28 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     try {
       const response = await apiFetch('/api/chat/conversations')
       setConversations(response.data)
-      const unread = response.data.reduce((sum, item) => sum + item.unreadCount, 0)
-      setTotalUnread(unread)
+      conversationsRef.current = response.data
+      setTotalUnread(sumUnread(response.data, groupsRef.current))
     } catch {
       setConversations([])
-      setTotalUnread(0)
+      conversationsRef.current = []
+      setTotalUnread(sumUnread([], groupsRef.current))
+    }
+  }, [canUseChat])
+
+  const refreshGroups = useCallback(async () => {
+    if (!canUseChat) return
+
+    try {
+      const response = await apiFetch('/api/chat/groups')
+      const nextGroups = Array.isArray(response.data) ? response.data : []
+      setGroups(nextGroups)
+      groupsRef.current = nextGroups
+      setTotalUnread(sumUnread(conversationsRef.current, nextGroups))
+    } catch {
+      setGroups([])
+      groupsRef.current = []
+      setTotalUnread(sumUnread(conversationsRef.current, []))
     }
   }, [canUseChat])
 
@@ -148,6 +201,21 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [canUseChat],
   )
 
+  const loadGroupMessages = useCallback(
+    async (groupId) => {
+      if (!canUseChat || !groupId) return []
+
+      try {
+        const response = await apiFetch(`/api/chat/groups/${groupId}/messages`)
+        setMessagesByGroup((prev) => ({ ...prev, [groupId]: response.data }))
+        return response.data
+      } catch {
+        return []
+      }
+    },
+    [canUseChat],
+  )
+
   const markConversationRead = useCallback(
     async (partnerId) => {
       if (!canUseChat || !partnerId) return
@@ -164,19 +232,63 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         if (unread > 0) {
           setTotalUnread((total) => Math.max(0, total - unread))
         }
-        return prev.map((item) =>
+        const next = prev.map((item) =>
           item.partnerId === partnerId ? { ...item, unreadCount: 0 } : item,
         )
+        conversationsRef.current = next
+        return next
       })
-      setNotifications((prev) => prev.filter((item) => item.partnerId !== partnerId))
+      setNotifications((prev) => prev.filter((item) => !notificationMatches(item, { partnerId })))
     },
     [canUseChat],
   )
+
+  const markGroupRead = useCallback(
+    async (groupId) => {
+      if (!canUseChat || !groupId) return
+
+      const socket = socketRef.current
+      try {
+        if (socket?.connected) {
+          socket.emit('chat:group:mark-read', { groupId })
+        } else {
+          await apiFetch(`/api/chat/groups/${groupId}/read`, { method: 'POST' })
+        }
+      } catch {
+        return
+      }
+
+      setGroups((prev) => {
+        const unread = prev.find((item) => item.id === groupId)?.unreadCount ?? 0
+        if (unread > 0) {
+          setTotalUnread((total) => Math.max(0, total - unread))
+        }
+        const next = prev.map((item) =>
+          item.id === groupId ? { ...item, unreadCount: 0 } : item,
+        )
+        groupsRef.current = next
+        return next
+      })
+      setNotifications((prev) => prev.filter((item) => !notificationMatches(item, { groupId })))
+    },
+    [canUseChat],
+  )
+
+  const upsertGroup = useCallback((group) => {
+    setGroups((prev) => {
+      const next = [group, ...prev.filter((item) => item.id !== group.id)]
+      groupsRef.current = next
+      setTotalUnread(sumUnread(conversationsRef.current, next))
+      return next
+    })
+  }, [])
 
   const appendMessage = useCallback((message) => {
     const currentUserId = userIdRef.current
     const partnerId =
       message.senderId === currentUserId ? message.recipientId : message.senderId
+
+    if (!partnerId) return
 
     setMessagesByPartner((prev) => {
       const existing = prev[partnerId] ?? []
@@ -204,7 +316,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           ? (previous?.unreadCount ?? 0) + 1
           : previous?.unreadCount ?? 0
 
-      return [
+      const updated = [
         {
           partnerId,
           partnerName: partner.name,
@@ -215,6 +327,58 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         },
         ...next,
       ]
+      conversationsRef.current = updated
+      setTotalUnread(sumUnread(updated, groupsRef.current))
+      return updated
+    })
+  }, [])
+
+  const appendGroupMessage = useCallback((message) => {
+    const groupId = message.groupId
+    if (!groupId) return
+
+    const currentUserId = userIdRef.current
+    const isIncoming = message.senderId !== currentUserId
+
+    setMessagesByGroup((prev) => {
+      const existing = prev[groupId] ?? []
+      if (existing.some((item) => item.id === message.id)) {
+        return prev
+      }
+      return {
+        ...prev,
+        [groupId]: [...existing, message],
+      }
+    })
+
+    setGroups((prev) => {
+      const previous = prev.find((item) => item.id === groupId)
+      const viewingGroup =
+        isOnChatPageRef.current && activeGroupRef.current === groupId
+      const unreadCount =
+        isIncoming && !viewingGroup
+          ? (previous?.unreadCount ?? 0) + 1
+          : previous?.unreadCount ?? 0
+
+      const updatedGroup = previous
+        ? { ...previous, lastMessage: message, unreadCount }
+        : {
+            id: groupId,
+            organizationId: '',
+            name: 'Group',
+            createdById: '',
+            createdAt: message.createdAt,
+            updatedAt: message.createdAt,
+            members: [],
+            currentMember: null,
+            lastMessage: message,
+            unreadCount,
+          }
+
+      const next = [updatedGroup, ...prev.filter((item) => item.id !== groupId)]
+      groupsRef.current = next
+      setTotalUnread(sumUnread(conversationsRef.current, next))
+      return next
     })
   }, [])
 
@@ -242,17 +406,63 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       ),
     }))
 
-    setConversations((prev) =>
-      prev.map((item) =>
+    setConversations((prev) => {
+      const next = prev.map((item) =>
         item.partnerId === partnerId ? { ...item, lastMessage: nextMessage } : item,
+      )
+      conversationsRef.current = next
+      return next
+    })
+  }, [])
+
+  const replaceOptimisticGroupMessage = useCallback((groupId, clientId, confirmed) => {
+    const nextMessage = {
+      ...confirmed,
+      groupId,
+      recipientId: confirmed.recipientId ?? null,
+      deliveredAt: confirmed.deliveredAt ?? null,
+      readAt: confirmed.readAt ?? null,
+      attachmentType: confirmed.attachmentType ?? null,
+      attachmentUrl: confirmed.attachmentUrl ?? null,
+      attachmentName: confirmed.attachmentName ?? null,
+      attachmentMimeType: confirmed.attachmentMimeType ?? null,
+      attachmentSize: confirmed.attachmentSize ?? null,
+      replyToMessageId: confirmed.replyToMessageId ?? null,
+      replyTo: confirmed.replyTo ?? null,
+      forwardedFromId: confirmed.forwardedFromId ?? null,
+      isDeletedForEveryone: confirmed.isDeletedForEveryone ?? false,
+      clientStatus: 'sent',
+    }
+
+    setMessagesByGroup((prev) => ({
+      ...prev,
+      [groupId]: (prev[groupId] ?? []).map((item) =>
+        item.id === clientId ? nextMessage : item,
       ),
-    )
+    }))
+
+    setGroups((prev) => {
+      const next = prev.map((item) =>
+        item.id === groupId ? { ...item, lastMessage: nextMessage } : item,
+      )
+      groupsRef.current = next
+      return next
+    })
   }, [])
 
   const markOptimisticFailed = useCallback((partnerId, clientId) => {
     setMessagesByPartner((prev) => ({
       ...prev,
       [partnerId]: (prev[partnerId] ?? []).map((item) =>
+        item.id === clientId ? { ...item, failed: true, clientStatus: 'failed' } : item,
+      ),
+    }))
+  }, [])
+
+  const markOptimisticGroupFailed = useCallback((groupId, clientId) => {
+    setMessagesByGroup((prev) => ({
+      ...prev,
+      [groupId]: (prev[groupId] ?? []).map((item) =>
         item.id === clientId ? { ...item, failed: true, clientStatus: 'failed' } : item,
       ),
     }))
@@ -300,13 +510,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       ),
     }))
 
-    setConversations((prev) =>
-      prev.map((item) =>
+    setConversations((prev) => {
+      const next = prev.map((item) =>
         item.partnerId === partnerId && item.lastMessage?.id === message.id
           ? { ...item, lastMessage: message }
           : item,
-      ),
-    )
+      )
+      conversationsRef.current = next
+      return next
+    })
   }, [])
 
   const handleIncomingMessage = useCallback(
@@ -328,7 +540,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }
 
       if (isIncoming && !viewingConversation) {
-        setTotalUnread((prev) => prev + 1)
         setNotifications((prev) =>
           upsertNotification(prev, {
             partnerId: message.senderId,
@@ -346,15 +557,103 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           void apiFetch(`/api/chat/messages/${partnerId}/read`, { method: 'POST' })
         }
 
-        setConversations((prev) =>
-          prev.map((item) =>
+        setConversations((prev) => {
+          const next = prev.map((item) =>
             item.partnerId === partnerId ? { ...item, unreadCount: 0 } : item,
-          ),
-        )
-        setNotifications((prev) => prev.filter((item) => item.partnerId !== partnerId))
+          )
+          conversationsRef.current = next
+          setTotalUnread(sumUnread(next, groupsRef.current))
+          return next
+        })
+        setNotifications((prev) => prev.filter((item) => !notificationMatches(item, { partnerId })))
       }
     },
     [appendMessage],
+  )
+
+  const handleIncomingGroupMessage = useCallback(
+    (message) => {
+      if (!message?.groupId) return
+
+      appendGroupMessage(message)
+
+      const currentUserId = userIdRef.current
+      const isIncoming = message.senderId !== currentUserId
+      const groupId = message.groupId
+      const viewingGroup = isOnChatPageRef.current && activeGroupRef.current === groupId
+      const groupName =
+        groupsRef.current.find((item) => item.id === groupId)?.name ?? 'Group'
+
+      if (isIncoming) {
+        playChatIncomingSound({ inConversation: viewingGroup })
+      }
+
+      if (isIncoming && !viewingGroup) {
+        setNotifications((prev) =>
+          upsertNotification(prev, {
+            groupId,
+            partnerName: groupName,
+            preview: `${message.senderName ?? 'User'}: ${getChatMessagePreview(message)}`,
+          }),
+        )
+      }
+
+      if (isIncoming && viewingGroup) {
+        const socket = socketRef.current
+        if (socket?.connected) {
+          socket.emit('chat:group:mark-read', { groupId })
+        } else {
+          void apiFetch(`/api/chat/groups/${groupId}/read`, { method: 'POST' })
+        }
+
+        setGroups((prev) => {
+          const next = prev.map((item) =>
+            item.id === groupId ? { ...item, unreadCount: 0 } : item,
+          )
+          groupsRef.current = next
+          setTotalUnread(sumUnread(conversationsRef.current, next))
+          return next
+        })
+        setNotifications((prev) => prev.filter((item) => !notificationMatches(item, { groupId })))
+      }
+    },
+    [appendGroupMessage],
+  )
+
+  const handleGroupMembershipUpdated = useCallback(
+    (payload) => {
+      if (!payload?.groupId) return
+
+      const currentUserId = userIdRef.current
+      const removed = Array.isArray(payload.removedUserIds)
+        ? payload.removedUserIds.includes(currentUserId)
+        : false
+
+      if (removed) {
+        setGroups((prev) => {
+          const next = prev.filter((item) => item.id !== payload.groupId)
+          groupsRef.current = next
+          setTotalUnread(sumUnread(conversationsRef.current, next))
+          return next
+        })
+        setMessagesByGroup((prev) => {
+          const next = { ...prev }
+          delete next[payload.groupId]
+          return next
+        })
+        if (activeGroupRef.current === payload.groupId) {
+          activeGroupRef.current = null
+          setActiveGroupIdState(null)
+        }
+        setNotifications((prev) =>
+          prev.filter((item) => !notificationMatches(item, { groupId: payload.groupId })),
+        )
+        return
+      }
+
+      void refreshGroups()
+    },
+    [refreshGroups],
   )
 
   const sendMessage = useCallback(
@@ -371,6 +670,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         id: clientId,
         senderId: currentUserId,
         recipientId,
+        groupId: null,
         body: trimmed,
         createdAt: new Date().toISOString(),
         deliveredAt: null,
@@ -422,6 +722,86 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [appendMessage, canUseChat, markOptimisticFailed, replaceOptimisticMessage],
   )
 
+  const sendGroupMessage = useCallback(
+    async (groupId, body, { replyToMessageId } = {}) => {
+      const trimmed = body.trim()
+      const currentUserId = userIdRef.current
+
+      if (!canUseChat || !groupId || !trimmed || !currentUserId) {
+        return null
+      }
+
+      const clientId = `temp-${crypto.randomUUID()}`
+      const optimistic = {
+        id: clientId,
+        senderId: currentUserId,
+        recipientId: null,
+        groupId,
+        body: trimmed,
+        createdAt: new Date().toISOString(),
+        deliveredAt: null,
+        readAt: null,
+        attachmentType: null,
+        attachmentUrl: null,
+        attachmentName: null,
+        attachmentMimeType: null,
+        attachmentSize: null,
+        replyToMessageId: replyToMessageId ?? null,
+        replyTo: null,
+        forwardedFromId: null,
+        isDeletedForEveryone: false,
+        senderName: user?.name,
+        clientStatus: 'sending',
+      }
+
+      appendGroupMessage(optimistic)
+      playChatSentSound()
+
+      const payload = {
+        groupId,
+        body: trimmed,
+        ...(replyToMessageId ? { replyToMessageId } : {}),
+      }
+
+      try {
+        const socket = socketRef.current
+        if (socket?.connected) {
+          const confirmed = await new Promise((resolve, reject) => {
+            socket.emit('chat:group:send', payload, (response) => {
+              if (!response?.ok) {
+                reject(new Error(response?.error ?? 'Failed to send group message'))
+                return
+              }
+              resolve(response.data)
+            })
+          })
+          replaceOptimisticGroupMessage(groupId, clientId, confirmed)
+          return confirmed
+        }
+
+        const response = await apiFetch(`/api/chat/groups/${groupId}/messages`, {
+          method: 'POST',
+          body: JSON.stringify({
+            body: trimmed,
+            ...(replyToMessageId ? { replyToMessageId } : {}),
+          }),
+        })
+        replaceOptimisticGroupMessage(groupId, clientId, response.data)
+        return response.data
+      } catch (error) {
+        markOptimisticGroupFailed(groupId, clientId)
+        throw error
+      }
+    },
+    [
+      appendGroupMessage,
+      canUseChat,
+      markOptimisticGroupFailed,
+      replaceOptimisticGroupMessage,
+      user?.name,
+    ],
+  )
+
   const sendChatAttachment = useCallback(
     async (recipientId, file, { body = '', onProgress } = {}) => {
       const currentUserId = userIdRef.current
@@ -436,6 +816,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         id: clientId,
         senderId: currentUserId,
         recipientId,
+        groupId: null,
         body: body.trim(),
         createdAt: new Date().toISOString(),
         deliveredAt: null,
@@ -473,6 +854,122 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }
     },
     [appendMessage, canUseChat, markOptimisticFailed, replaceOptimisticMessage],
+  )
+
+  const sendGroupChatAttachment = useCallback(
+    async (groupId, file, { body = '', onProgress } = {}) => {
+      const currentUserId = userIdRef.current
+
+      if (!canUseChat || !groupId || !file || !currentUserId) {
+        return null
+      }
+
+      const clientId = `temp-${crypto.randomUUID()}`
+      const previewUrl = URL.createObjectURL(file)
+      const optimistic = {
+        id: clientId,
+        senderId: currentUserId,
+        recipientId: null,
+        groupId,
+        body: body.trim(),
+        createdAt: new Date().toISOString(),
+        deliveredAt: null,
+        readAt: null,
+        attachmentType: classifyChatFile(file),
+        attachmentUrl: previewUrl,
+        attachmentName: file.name,
+        attachmentMimeType: file.type || 'application/octet-stream',
+        attachmentSize: file.size,
+        senderName: user?.name,
+        clientStatus: 'sending',
+      }
+
+      appendGroupMessage(optimistic)
+      playChatSentSound()
+
+      const formData = new FormData()
+      formData.append('file', file)
+      if (body.trim()) {
+        formData.append('body', body.trim())
+      }
+
+      try {
+        const response = await apiUploadFormData(
+          `/api/chat/groups/${groupId}/messages/attachment`,
+          formData,
+          onProgress,
+        )
+        URL.revokeObjectURL(previewUrl)
+        replaceOptimisticGroupMessage(groupId, clientId, response.data)
+        return response.data
+      } catch (error) {
+        URL.revokeObjectURL(previewUrl)
+        markOptimisticGroupFailed(groupId, clientId)
+        throw error
+      }
+    },
+    [
+      appendGroupMessage,
+      canUseChat,
+      markOptimisticGroupFailed,
+      replaceOptimisticGroupMessage,
+      user?.name,
+    ],
+  )
+
+  const createGroup = useCallback(
+    async (name, memberIds) => {
+      if (!canUseChat) return null
+
+      const response = await apiFetch('/api/chat/groups', {
+        method: 'POST',
+        body: JSON.stringify({ name, memberIds }),
+      })
+      upsertGroup(response.data)
+      return response.data
+    },
+    [canUseChat, upsertGroup],
+  )
+
+  const addGroupMembers = useCallback(
+    async (groupId, userIds) => {
+      if (!canUseChat || !groupId || !userIds?.length) return null
+
+      const response = await apiFetch(`/api/chat/groups/${groupId}/members`, {
+        method: 'POST',
+        body: JSON.stringify({ userIds }),
+      })
+      upsertGroup(response.data)
+      return response.data
+    },
+    [canUseChat, upsertGroup],
+  )
+
+  const removeGroupMember = useCallback(
+    async (groupId, userId) => {
+      if (!canUseChat || !groupId || !userId) return null
+
+      const response = await apiFetch(`/api/chat/groups/${groupId}/members/${userId}`, {
+        method: 'DELETE',
+      })
+      upsertGroup(response.data)
+      return response.data
+    },
+    [canUseChat, upsertGroup],
+  )
+
+  const setGroupMemberCanSend = useCallback(
+    async (groupId, userId, canSend) => {
+      if (!canUseChat || !groupId || !userId) return null
+
+      const response = await apiFetch(`/api/chat/groups/${groupId}/members/${userId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ canSend }),
+      })
+      upsertGroup(response.data)
+      return response.data
+    },
+    [canUseChat, upsertGroup],
   )
 
   const deleteMessageForMe = useCallback(
@@ -522,8 +1019,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [appendMessage, canUseChat],
   )
 
-  const dismissNotification = useCallback((partnerId) => {
-    setNotifications((prev) => prev.filter((item) => item.partnerId !== partnerId))
+  const dismissNotification = useCallback((input) => {
+    setNotifications((prev) => prev.filter((item) => !notificationMatches(item, input)))
   }, [])
 
   const clearNotifications = useCallback(() => {
@@ -532,15 +1029,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const refreshConversationsRef = useRef(refreshConversations)
   const refreshUsersRef = useRef(refreshUsers)
+  const refreshGroupsRef = useRef(refreshGroups)
   const handleIncomingMessageRef = useRef(handleIncomingMessage)
+  const handleIncomingGroupMessageRef = useRef(handleIncomingGroupMessage)
+  const handleGroupMembershipUpdatedRef = useRef(handleGroupMembershipUpdated)
   const applyMessageDeliveredRef = useRef(applyMessageDelivered)
   const applyMessagesReadRef = useRef(applyMessagesRead)
-
   const applyMessageDeletedForEveryoneRef = useRef(applyMessageDeletedForEveryone)
 
   refreshConversationsRef.current = refreshConversations
   refreshUsersRef.current = refreshUsers
+  refreshGroupsRef.current = refreshGroups
   handleIncomingMessageRef.current = handleIncomingMessage
+  handleIncomingGroupMessageRef.current = handleIncomingGroupMessage
+  handleGroupMembershipUpdatedRef.current = handleGroupMembershipUpdated
   applyMessageDeliveredRef.current = applyMessageDelivered
   applyMessagesReadRef.current = applyMessagesRead
   applyMessageDeletedForEveryoneRef.current = applyMessageDeletedForEveryone
@@ -574,6 +1076,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }
       void refreshConversationsRef.current()
       void refreshUsersRef.current()
+      void refreshGroupsRef.current()
     }
 
     const onDisconnect = () => {
@@ -582,6 +1085,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     const onMessage = (message) => {
       handleIncomingMessageRef.current(message)
+    }
+
+    const onGroupMessage = (message) => {
+      handleIncomingGroupMessageRef.current(message)
     }
 
     const onRead = (payload) => {
@@ -593,6 +1100,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         )
       }
       void refreshConversationsRef.current()
+    }
+
+    const onGroupRead = () => {
+      void refreshGroupsRef.current()
+    }
+
+    const onGroupMembershipUpdated = (payload) => {
+      handleGroupMembershipUpdatedRef.current(payload)
     }
 
     const onDelivered = (payload) => {
@@ -610,7 +1125,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           ? payload.message.recipientId
           : payload.message.senderId
 
-      applyMessageDeletedForEveryoneRef.current(partnerId, payload.message)
+      if (partnerId) {
+        applyMessageDeletedForEveryoneRef.current(partnerId, payload.message)
+      }
     }
 
     const onPresenceSync = ({ liveUserIds: nextLiveUserIds, lastSeenByUserId: nextLastSeen }) => {
@@ -623,7 +1140,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
     socket.on('chat:message', onMessage)
+    socket.on('chat:group:message', onGroupMessage)
     socket.on('chat:read', onRead)
+    socket.on('chat:group:read', onGroupRead)
+    socket.on('chat:group:membership-updated', onGroupMembershipUpdated)
     socket.on('chat:delivered', onDelivered)
     socket.on('chat:message-deleted', onMessageDeleted)
     socket.on('chat:presence:sync', onPresenceSync)
@@ -636,7 +1156,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       socket.off('connect', onConnect)
       socket.off('disconnect', onDisconnect)
       socket.off('chat:message', onMessage)
+      socket.off('chat:group:message', onGroupMessage)
       socket.off('chat:read', onRead)
+      socket.off('chat:group:read', onGroupRead)
+      socket.off('chat:group:membership-updated', onGroupMembershipUpdated)
       socket.off('chat:delivered', onDelivered)
       socket.off('chat:message-deleted', onMessageDeleted)
       socket.off('chat:presence:sync', onPresenceSync)
@@ -655,13 +1178,18 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     if (!canUseChat) {
       setChatUsers([])
       setConversations([])
+      setGroups([])
       setMessagesByPartner({})
+      setMessagesByGroup({})
       setNotifications([])
       setTotalUnread(0)
       setActivePartnerId(null)
+      setActiveGroupId(null)
       setLiveUserIds(new Set())
+      conversationsRef.current = []
+      groupsRef.current = []
     }
-  }, [canUseChat, setActivePartnerId])
+  }, [canUseChat, setActiveGroupId, setActivePartnerId])
 
   useEffect(() => {
     if (!isChatRoute && isOnChatPage) {
@@ -688,23 +1216,36 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       canUseChat,
       chatUsers,
       conversations,
+      groups,
       messagesByPartner,
+      messagesByGroup,
       activePartnerId,
+      activeGroupId,
       isOnChatPage,
       notifications,
       totalUnread,
       liveUserIds,
       isChatRoute,
       setActivePartnerId,
+      setActiveGroupId,
       setChatPageActive,
       isUserLive,
       getUserLastSeen,
       refreshUsers,
       refreshConversations,
+      refreshGroups,
       loadMessages,
+      loadGroupMessages,
       markConversationRead,
+      markGroupRead,
+      createGroup,
+      addGroupMembers,
+      removeGroupMember,
+      setGroupMemberCanSend,
       sendMessage,
+      sendGroupMessage,
       sendChatAttachment,
+      sendGroupChatAttachment,
       deleteMessageForMe,
       deleteMessageForEveryone,
       forwardMessage,
@@ -716,23 +1257,36 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       canUseChat,
       chatUsers,
       conversations,
+      groups,
       messagesByPartner,
+      messagesByGroup,
       activePartnerId,
+      activeGroupId,
       isOnChatPage,
       notifications,
       totalUnread,
       liveUserIds,
       isChatRoute,
       setActivePartnerId,
+      setActiveGroupId,
       setChatPageActive,
       isUserLive,
       getUserLastSeen,
       refreshUsers,
       refreshConversations,
+      refreshGroups,
       loadMessages,
+      loadGroupMessages,
       markConversationRead,
+      markGroupRead,
+      createGroup,
+      addGroupMembers,
+      removeGroupMember,
+      setGroupMemberCanSend,
       sendMessage,
+      sendGroupMessage,
       sendChatAttachment,
+      sendGroupChatAttachment,
       deleteMessageForMe,
       deleteMessageForEveryone,
       forwardMessage,

@@ -1,11 +1,18 @@
 import { ChatAttachmentType } from '@prisma/client'
 import { prisma } from '@myinventory/prisma'
-import type { ChatConversationSummary, ChatMessageDto } from '@myinventory/shared'
+import type {
+  ChatConversationSummary,
+  ChatGroupDto,
+  ChatGroupReadResult,
+  ChatMessageDto,
+  UserRole,
+} from '@myinventory/shared'
 import { uploadChatAttachment } from '../../lib/chat-attachments.js'
 import { AppError } from '../../middleware/error-handler.js'
 import {
   isMessageHiddenForUser,
   mapChatMessageToDto,
+  mapChatGroupToDto,
   mapChatUserToSummary,
   mapConversationToSummary,
 } from './chat.mapper.js'
@@ -29,6 +36,7 @@ async function getMessageForParticipant(
     where: {
       id: messageId,
       organizationId: orgId,
+      groupId: null,
       OR: [{ senderId: userId }, { recipientId: userId }],
     },
     include: messageInclude,
@@ -44,6 +52,7 @@ async function getMessageForParticipant(
 function conversationMessageFilter(orgId: string, userId: string, partnerId: string) {
   return {
     organizationId: orgId,
+    groupId: null,
     OR: [
       { senderId: userId, recipientId: partnerId, hiddenForSenderAt: null },
       { senderId: partnerId, recipientId: userId, hiddenForRecipientAt: null },
@@ -119,6 +128,7 @@ export async function listConversations(
   const recentMessages = await prisma.chatMessage.findMany({
     where: {
       organizationId: orgId,
+      groupId: null,
       OR: [{ senderId: userId }, { recipientId: userId }],
     },
     orderBy: { createdAt: 'desc' },
@@ -130,6 +140,7 @@ export async function listConversations(
     by: ['senderId'],
     where: {
       organizationId: orgId,
+      groupId: null,
       recipientId: userId,
       readAt: null,
     },
@@ -330,15 +341,37 @@ export async function markMessageDelivered(
 }
 
 export async function getTotalUnreadCount(orgId: string, userId: string): Promise<number> {
-  return prisma.chatMessage.count({
-    where: {
-      organizationId: orgId,
-      recipientId: userId,
-      readAt: null,
-      hiddenForRecipientAt: null,
-      deletedForEveryoneAt: null,
-    },
-  })
+  const [directCount, memberships] = await Promise.all([
+    prisma.chatMessage.count({
+      where: {
+        organizationId: orgId,
+        groupId: null,
+        recipientId: userId,
+        readAt: null,
+        hiddenForRecipientAt: null,
+        deletedForEveryoneAt: null,
+      },
+    }),
+    prisma.chatGroupMember.findMany({
+      where: { userId, group: { organizationId: orgId } },
+      select: { groupId: true, joinedAt: true, lastReadAt: true },
+    }),
+  ])
+
+  const groupCounts = await Promise.all(
+    memberships.map((membership) =>
+      prisma.chatMessage.count({
+        where: {
+          groupId: membership.groupId,
+          senderId: { not: userId },
+          createdAt: { gt: membership.lastReadAt ?? membership.joinedAt },
+          deletedForEveryoneAt: null,
+        },
+      }),
+    ),
+  )
+
+  return directCount + groupCounts.reduce((total, count) => total + count, 0)
 }
 
 export async function deleteChatMessageForMe(
@@ -347,7 +380,7 @@ export async function deleteChatMessageForMe(
   messageId: string,
 ): Promise<{ messageId: string; partnerId: string }> {
   const message = await getMessageForParticipant(orgId, userId, messageId)
-  const partnerId = message.senderId === userId ? message.recipientId : message.senderId
+  const partnerId = message.senderId === userId ? message.recipientId! : message.senderId
   const now = new Date()
 
   if (message.senderId === userId) {
@@ -388,7 +421,7 @@ export async function deleteChatMessageForEveryone(
 
   return {
     message: mapChatMessageToDto(updated),
-    partnerId: message.recipientId,
+    partnerId: message.recipientId!,
   }
 }
 
@@ -423,4 +456,441 @@ export async function forwardChatMessage(
   })
 
   return mapChatMessageToDto(message)
+}
+
+const groupMemberInclude = {
+  user: {
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      chatLastSeenAt: true,
+    },
+  },
+} as const
+
+const groupInclude = {
+  members: {
+    include: groupMemberInclude,
+    orderBy: { joinedAt: 'asc' as const },
+  },
+} as const
+
+function canManageGroups(role: UserRole): boolean {
+  return role === 'ADMIN' || role === 'MANAGER'
+}
+
+async function assertGroupManager(orgId: string, role: UserRole, groupId: string) {
+  if (!canManageGroups(role)) {
+    throw new AppError(403, 'Only administrators and managers can manage chat groups')
+  }
+
+  const group = await prisma.chatGroup.findFirst({
+    where: { id: groupId, organizationId: orgId },
+    include: groupInclude,
+  })
+
+  if (!group) {
+    throw new AppError(404, 'Chat group not found')
+  }
+
+  return group
+}
+
+async function assertGroupMembership(
+  orgId: string,
+  userId: string,
+  groupId: string,
+  requireSend = false,
+) {
+  const membership = await prisma.chatGroupMember.findFirst({
+    where: {
+      groupId,
+      userId,
+      group: { organizationId: orgId },
+    },
+    include: {
+      group: { select: { id: true, name: true, organizationId: true } },
+    },
+  })
+
+  if (!membership) {
+    throw new AppError(403, 'You are not a member of this chat group')
+  }
+
+  if (requireSend && !membership.canSend) {
+    throw new AppError(403, 'You are muted in this chat group')
+  }
+
+  return membership
+}
+
+async function assertActiveOrgUsers(orgId: string, userIds: string[]): Promise<string[]> {
+  const uniqueIds = [...new Set(userIds)]
+  if (uniqueIds.length === 0) return uniqueIds
+
+  const users = await prisma.user.findMany({
+    where: {
+      id: { in: uniqueIds },
+      organizationId: orgId,
+      status: 'ACTIVE',
+    },
+    select: { id: true },
+  })
+
+  if (users.length !== uniqueIds.length) {
+    throw new AppError(400, 'All group members must be active users in your organization')
+  }
+
+  return uniqueIds
+}
+
+async function mapGroupWithActivity(
+  group: Awaited<ReturnType<typeof prisma.chatGroup.findFirst>> & {
+    members: Array<{
+      canSend: boolean
+      joinedAt: Date
+      lastReadAt: Date | null
+      user: {
+        id: string
+        name: string
+        email: string
+        role: string
+        chatLastSeenAt: Date | null
+      }
+    }>
+  },
+  userId: string,
+): Promise<ChatGroupDto> {
+  const membership = group.members.find((member) => member.user.id === userId)
+  const visibleSince = membership?.lastReadAt ?? membership?.joinedAt
+
+  const [lastMessage, unreadCount] = await Promise.all([
+    membership
+      ? prisma.chatMessage.findFirst({
+          where: {
+            groupId: group.id,
+            createdAt: { gte: membership.joinedAt },
+          },
+          orderBy: { createdAt: 'desc' },
+          include: messageInclude,
+        })
+      : Promise.resolve(null),
+    membership
+      ? prisma.chatMessage.count({
+          where: {
+            groupId: group.id,
+            senderId: { not: userId },
+            createdAt: { gt: visibleSince! },
+            deletedForEveryoneAt: null,
+          },
+        })
+      : Promise.resolve(0),
+  ])
+
+  return mapChatGroupToDto(group, userId, { lastMessage, unreadCount })
+}
+
+export async function createChatGroup(
+  orgId: string,
+  creatorId: string,
+  role: UserRole,
+  input: { name: string; memberIds: string[] },
+): Promise<ChatGroupDto> {
+  if (!canManageGroups(role)) {
+    throw new AppError(403, 'Only administrators and managers can create chat groups')
+  }
+
+  const memberIds = await assertActiveOrgUsers(orgId, [creatorId, ...input.memberIds])
+  const group = await prisma.chatGroup.create({
+    data: {
+      organizationId: orgId,
+      name: input.name,
+      createdById: creatorId,
+      members: {
+        create: memberIds.map((userId) => ({ userId })),
+      },
+    },
+    include: groupInclude,
+  })
+
+  return mapGroupWithActivity(group, creatorId)
+}
+
+export async function listChatGroups(
+  orgId: string,
+  userId: string,
+  role: UserRole,
+): Promise<ChatGroupDto[]> {
+  const groups = await prisma.chatGroup.findMany({
+    where: {
+      organizationId: orgId,
+      ...(canManageGroups(role) ? {} : { members: { some: { userId } } }),
+    },
+    include: groupInclude,
+    orderBy: { updatedAt: 'desc' },
+  })
+
+  return Promise.all(groups.map((group) => mapGroupWithActivity(group, userId)))
+}
+
+export async function getChatGroup(
+  orgId: string,
+  userId: string,
+  role: UserRole,
+  groupId: string,
+): Promise<ChatGroupDto> {
+  const group = await prisma.chatGroup.findFirst({
+    where: {
+      id: groupId,
+      organizationId: orgId,
+      ...(canManageGroups(role) ? {} : { members: { some: { userId } } }),
+    },
+    include: groupInclude,
+  })
+
+  if (!group) {
+    throw new AppError(404, 'Chat group not found')
+  }
+
+  return mapGroupWithActivity(group, userId)
+}
+
+export async function updateChatGroup(
+  orgId: string,
+  userId: string,
+  role: UserRole,
+  groupId: string,
+  name: string,
+): Promise<ChatGroupDto> {
+  await assertGroupManager(orgId, role, groupId)
+  const group = await prisma.chatGroup.update({
+    where: { id: groupId },
+    data: { name },
+    include: groupInclude,
+  })
+  return mapGroupWithActivity(group, userId)
+}
+
+export async function addChatGroupMembers(
+  orgId: string,
+  actorId: string,
+  role: UserRole,
+  groupId: string,
+  userIds: string[],
+): Promise<{ group: ChatGroupDto; addedUserIds: string[] }> {
+  await assertGroupManager(orgId, role, groupId)
+  const validUserIds = await assertActiveOrgUsers(orgId, userIds)
+  const existing = await prisma.chatGroupMember.findMany({
+    where: { groupId, userId: { in: validUserIds } },
+    select: { userId: true },
+  })
+  const existingIds = new Set(existing.map((member) => member.userId))
+  const addedUserIds = validUserIds.filter((userId) => !existingIds.has(userId))
+
+  if (addedUserIds.length > 0) {
+    await prisma.chatGroupMember.createMany({
+      data: addedUserIds.map((userId) => ({ groupId, userId })),
+    })
+  }
+
+  return {
+    group: await getChatGroup(orgId, actorId, role, groupId),
+    addedUserIds,
+  }
+}
+
+export async function removeChatGroupMember(
+  orgId: string,
+  actorId: string,
+  role: UserRole,
+  groupId: string,
+  userId: string,
+): Promise<{ group: ChatGroupDto; removedUserId: string }> {
+  await assertGroupManager(orgId, role, groupId)
+  const membership = await prisma.chatGroupMember.findUnique({
+    where: { groupId_userId: { groupId, userId } },
+  })
+  if (!membership) {
+    throw new AppError(404, 'Group member not found')
+  }
+
+  await prisma.chatGroupMember.delete({ where: { id: membership.id } })
+  return {
+    group: await getChatGroup(orgId, actorId, role, groupId),
+    removedUserId: userId,
+  }
+}
+
+export async function updateChatGroupMemberCanSend(
+  orgId: string,
+  actorId: string,
+  role: UserRole,
+  groupId: string,
+  userId: string,
+  canSend: boolean,
+): Promise<ChatGroupDto> {
+  await assertGroupManager(orgId, role, groupId)
+  const result = await prisma.chatGroupMember.updateMany({
+    where: { groupId, userId },
+    data: { canSend },
+  })
+  if (result.count === 0) {
+    throw new AppError(404, 'Group member not found')
+  }
+
+  return getChatGroup(orgId, actorId, role, groupId)
+}
+
+export async function getChatGroupMessages(
+  orgId: string,
+  userId: string,
+  groupId: string,
+  options: { limit: number; before?: string },
+): Promise<ChatMessageDto[]> {
+  const membership = await assertGroupMembership(orgId, userId, groupId)
+  const messages = await prisma.chatMessage.findMany({
+    where: {
+      groupId,
+      organizationId: orgId,
+      createdAt: {
+        gte: membership.joinedAt,
+        ...(options.before ? { lt: new Date(options.before) } : {}),
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: options.limit,
+    include: messageInclude,
+  })
+
+  return messages.reverse().map(mapChatMessageToDto)
+}
+
+export async function sendChatGroupMessage(
+  orgId: string,
+  senderId: string,
+  groupId: string,
+  body: string,
+  replyToMessageId?: string,
+): Promise<ChatMessageDto> {
+  const membership = await assertGroupMembership(orgId, senderId, groupId, true)
+
+  if (replyToMessageId) {
+    const replyTarget = await prisma.chatMessage.findFirst({
+      where: {
+        id: replyToMessageId,
+        organizationId: orgId,
+        groupId,
+        createdAt: { gte: membership.joinedAt },
+      },
+      select: { id: true },
+    })
+    if (!replyTarget) {
+      throw new AppError(400, 'Reply target is not in this group')
+    }
+  }
+
+  const [message] = await prisma.$transaction([
+    prisma.chatMessage.create({
+      data: {
+        organizationId: orgId,
+        senderId,
+        groupId,
+        recipientId: null,
+        body,
+        replyToMessageId: replyToMessageId ?? null,
+      },
+      include: messageInclude,
+    }),
+    prisma.chatGroup.update({
+      where: { id: groupId },
+      data: { updatedAt: new Date() },
+    }),
+  ])
+
+  return mapChatMessageToDto(message)
+}
+
+export async function sendChatGroupAttachmentMessage(
+  orgId: string,
+  senderId: string,
+  groupId: string,
+  input: {
+    buffer: Buffer
+    mimeType: string
+    fileName: string
+    body?: string
+  },
+): Promise<ChatMessageDto> {
+  await assertGroupMembership(orgId, senderId, groupId, true)
+  const upload = await uploadChatAttachment({
+    organizationId: orgId,
+    buffer: input.buffer,
+    mimeType: input.mimeType,
+    fileName: input.fileName,
+  })
+
+  const [message] = await prisma.$transaction([
+    prisma.chatMessage.create({
+      data: {
+        organizationId: orgId,
+        senderId,
+        groupId,
+        recipientId: null,
+        body: input.body?.trim() ?? '',
+        attachmentType: upload.type as ChatAttachmentType,
+        attachmentUrl: upload.url,
+        attachmentName: input.fileName,
+        attachmentMimeType: input.mimeType,
+        attachmentSize: upload.size,
+      },
+      include: messageInclude,
+    }),
+    prisma.chatGroup.update({
+      where: { id: groupId },
+      data: { updatedAt: new Date() },
+    }),
+  ])
+
+  return mapChatMessageToDto(message)
+}
+
+export async function markChatGroupRead(
+  orgId: string,
+  userId: string,
+  groupId: string,
+): Promise<ChatGroupReadResult> {
+  const membership = await assertGroupMembership(orgId, userId, groupId)
+  const since = membership.lastReadAt ?? membership.joinedAt
+  const unreadMessages = await prisma.chatMessage.findMany({
+    where: {
+      organizationId: orgId,
+      groupId,
+      senderId: { not: userId },
+      createdAt: { gt: since },
+      deletedForEveryoneAt: null,
+    },
+    select: { id: true },
+  })
+  const readAt = new Date()
+
+  await prisma.chatGroupMember.update({
+    where: { groupId_userId: { groupId, userId } },
+    data: { lastReadAt: readAt },
+  })
+
+  return {
+    count: unreadMessages.length,
+    messageIds: unreadMessages.map((message) => message.id),
+    readAt: readAt.toISOString(),
+  }
+}
+
+export async function getChatGroupIdsForUser(orgId: string, userId: string): Promise<string[]> {
+  const memberships = await prisma.chatGroupMember.findMany({
+    where: { userId, group: { organizationId: orgId } },
+    select: { groupId: true },
+  })
+  return memberships.map((membership) => membership.groupId)
 }

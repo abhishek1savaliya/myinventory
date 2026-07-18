@@ -1,10 +1,13 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment -- matches existing chat page style */
 // @ts-nocheck
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { MessageCircle, Paperclip, Send, Users } from 'lucide-react'
-import { getChatMessagePreview, formatChatLastSeen } from '@myinventory/shared'
+import { MessageCircle, Paperclip, Plus, Send, Users } from 'lucide-react'
+import { UserRole, getChatMessagePreview, formatChatLastSeen } from '@myinventory/shared'
 import { ChatMessageActionsMenu } from '@renderer/components/chat/ChatMessageActionsMenu'
 import { ForwardMessageDialog } from '@renderer/components/chat/ForwardMessageDialog'
+import { CreateGroupDialog } from '@renderer/components/chat/CreateGroupDialog'
+import { ManageGroupMembersDialog } from '@renderer/components/chat/ManageGroupMembersDialog'
 import { ChatReplyBar } from '@renderer/components/chat/ChatReplyBar'
 import { MessageStatusTicks } from '@renderer/components/chat/MessageStatusTicks'
 import { ChatMessageContent } from '@renderer/components/chat/ChatMessageContent'
@@ -96,13 +99,24 @@ function UserAvatar({ name, isLive }) {
       <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-primary)] text-sm font-semibold text-[var(--color-primary-foreground)]">
         {name.charAt(0).toUpperCase()}
       </div>
-      <span
-        className={cn(
-          'absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white',
-          isLive ? 'bg-emerald-500' : 'bg-red-500',
-        )}
-        aria-hidden
-      />
+      {typeof isLive === 'boolean' && (
+        <span
+          className={cn(
+            'absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white',
+            isLive ? 'bg-emerald-500' : 'bg-red-500',
+          )}
+          aria-hidden
+        />
+      )}
+    </div>
+  )
+}
+
+function GroupAvatar({ name }) {
+  return (
+    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-sidebar-active)] text-[var(--color-primary)]">
+      <Users className="h-5 w-5" aria-hidden />
+      <span className="sr-only">{name}</span>
     </div>
   )
 }
@@ -138,8 +152,40 @@ function UserListItem({ user, isActive, isLive, lastSeenAt, unreadCount, subtitl
   )
 }
 
+function GroupListItem({ group, isActive, onSelect }) {
+  const subtitle = group.lastMessage
+    ? getChatMessagePreview(group.lastMessage)
+    : `${group.members.length} member${group.members.length === 1 ? '' : 's'}`
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(group.id)}
+      className={cn(
+        'flex w-full items-center gap-3 rounded-lg border px-3 py-3 text-left transition-colors',
+        isActive
+          ? 'border-[var(--color-primary)] bg-[var(--color-sidebar-active)]'
+          : 'border-transparent hover:bg-gray-50',
+      )}
+    >
+      <GroupAvatar name={group.name} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-2">
+          <p className="truncate text-sm font-medium text-gray-900">{group.name}</p>
+          {group.unreadCount > 0 && (
+            <span className="rounded-full bg-[var(--color-primary)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-primary-foreground)]">
+              {group.unreadCount}
+            </span>
+          )}
+        </div>
+        <p className="mt-0.5 truncate text-xs text-[var(--color-muted)]">{subtitle}</p>
+      </div>
+    </button>
+  )
+}
+
 export function ChatPage() {
-  const { user } = useAuth()
+  const { user, hasRole } = useAuth()
   const [searchParams] = useSearchParams()
   const messagesEndRef = useRef(null)
   const fileInputRef = useRef(null)
@@ -150,22 +196,37 @@ export function ChatPage() {
   const [replyToMessage, setReplyToMessage] = useState(null)
   const [menuState, setMenuState] = useState({ open: false, message: null, x: 0, y: 0 })
   const [forwardMessage, setForwardMessage] = useState(null)
+  const [createGroupOpen, setCreateGroupOpen] = useState(false)
+  const [manageMembersOpen, setManageMembersOpen] = useState(false)
 
   const {
     canUseChat,
     isConnected,
     chatUsers,
     conversations,
+    groups: groupsValue,
     messagesByPartner,
+    messagesByGroup,
     activePartnerId,
+    activeGroupId,
     setActivePartnerId,
+    setActiveGroupId,
     setChatPageActive,
     refreshUsers,
     refreshConversations,
+    refreshGroups,
     loadMessages,
+    loadGroupMessages,
     markConversationRead,
+    markGroupRead,
+    createGroup,
+    addGroupMembers,
+    removeGroupMember,
+    setGroupMemberCanSend,
     sendMessage,
+    sendGroupMessage,
     sendChatAttachment,
+    sendGroupChatAttachment,
     deleteMessageForMe,
     deleteMessageForEveryone,
     forwardMessage: forwardMessageToUser,
@@ -174,7 +235,10 @@ export function ChatPage() {
     getUserLastSeen,
   } = useChat()
 
+  const groups = Array.isArray(groupsValue) ? groupsValue : []
+  const canManageGroups = hasRole(UserRole.ADMIN, UserRole.MANAGER)
   const requestedUserId = searchParams.get('user')
+  const requestedGroupId = searchParams.get('group')
 
   const usersWithMeta = useMemo(() => {
     const conversationByPartner = new Map(
@@ -218,19 +282,64 @@ export function ChatPage() {
     })
   }, [chatUsers, conversations])
 
+  const sortedGroups = useMemo(() => {
+    const safeGroups = Array.isArray(groups) ? [...groups] : []
+    return safeGroups.sort((a, b) => {
+      const aTime = a.lastMessage?.createdAt
+        ? new Date(a.lastMessage.createdAt).getTime()
+        : new Date(a.updatedAt).getTime()
+      const bTime = b.lastMessage?.createdAt
+        ? new Date(b.lastMessage.createdAt).getTime()
+        : new Date(b.updatedAt).getTime()
+      if (aTime !== bTime) return bTime - aTime
+      return a.name.localeCompare(b.name)
+    })
+  }, [groups])
+
   const activeUser = usersWithMeta.find((item) => item.id === activePartnerId) ?? null
-  const activeMessages = activePartnerId ? messagesByPartner[activePartnerId] ?? [] : []
+  const activeGroup = groups.find((item) => item.id === activeGroupId) ?? null
+  const isGroupMode = Boolean(activeGroupId)
+  const activeMessages = isGroupMode
+    ? messagesByGroup[activeGroupId] ?? []
+    : activePartnerId
+      ? messagesByPartner[activePartnerId] ?? []
+      : []
+
+  const canSendInActiveGroup =
+    Boolean(activeGroup?.currentMember) && activeGroup.currentMember.canSend !== false
+  const composerDisabled =
+    uploadProgress !== null || (isGroupMode && !canSendInActiveGroup)
 
   const selectPartner = useCallback(
     async (partnerId) => {
       setActivePartnerId(partnerId)
       setShowUsersOnMobile(false)
       setSendError(null)
-      dismissNotification(partnerId)
+      setReplyToMessage(null)
+      dismissNotification({ partnerId })
       await loadMessages(partnerId)
       await markConversationRead(partnerId)
     },
     [dismissNotification, loadMessages, markConversationRead, setActivePartnerId],
+  )
+
+  const selectGroup = useCallback(
+    async (groupId) => {
+      setActiveGroupId(groupId)
+      setShowUsersOnMobile(false)
+      setSendError(null)
+      setReplyToMessage(null)
+      dismissNotification({ groupId })
+
+      await loadGroupMessages(groupId)
+
+      try {
+        await markGroupRead(groupId)
+      } catch {
+        // Non-members (e.g. admin viewing) cannot mark read.
+      }
+    },
+    [dismissNotification, loadGroupMessages, markGroupRead, setActiveGroupId],
   )
 
   useEffect(() => {
@@ -238,33 +347,49 @@ export function ChatPage() {
     initChatAudio()
     void refreshUsers()
     void refreshConversations()
+    void refreshGroups()
 
     return () => {
       setChatPageActive(false)
       setActivePartnerId(null)
+      setActiveGroupId(null)
     }
     // Mount/unmount only — socket presence must not thrash on data refresh
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
-    if (!requestedUserId) return
-    void selectPartner(requestedUserId)
-  }, [requestedUserId, selectPartner])
+    if (requestedGroupId) {
+      void selectGroup(requestedGroupId)
+      return
+    }
+    if (requestedUserId) {
+      void selectPartner(requestedUserId)
+    }
+  }, [requestedGroupId, requestedUserId, selectGroup, selectPartner])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [activeMessages.length, activePartnerId])
+  }, [activeMessages.length, activePartnerId, activeGroupId])
 
   function handleSend(event) {
     event.preventDefault()
     const text = draft.trim()
-    if (!activePartnerId || !text) return
+    if (!text || composerDisabled) return
 
     const replyToMessageId = replyToMessage?.id
     setDraft('')
     setReplyToMessage(null)
     setSendError(null)
+
+    if (isGroupMode && activeGroupId) {
+      void sendGroupMessage(activeGroupId, text, { replyToMessageId }).catch((error) => {
+        setSendError(error instanceof Error ? error.message : 'Could not send message')
+      })
+      return
+    }
+
+    if (!activePartnerId) return
 
     void sendMessage(activePartnerId, text, { replyToMessageId }).catch((error) => {
       setSendError(error instanceof Error ? error.message : 'Could not send message')
@@ -272,6 +397,7 @@ export function ChatPage() {
   }
 
   function handleAttachClick() {
+    if (composerDisabled) return
     fileInputRef.current?.click()
   }
 
@@ -279,7 +405,7 @@ export function ChatPage() {
     const file = event.target.files?.[0]
     event.target.value = ''
 
-    if (!file || !activePartnerId) return
+    if (!file || composerDisabled) return
 
     const validationError = validateChatFile(file)
     if (validationError) {
@@ -290,14 +416,23 @@ export function ChatPage() {
     setSendError(null)
     setUploadProgress(0)
 
-    void sendChatAttachment(activePartnerId, file, {
+    const options = {
       body: draft.trim(),
       onProgress: (loaded, total) => {
         if (total > 0) {
           setUploadProgress(Math.round((loaded / total) * 100))
         }
       },
-    })
+    }
+
+    const uploadPromise =
+      isGroupMode && activeGroupId
+        ? sendGroupChatAttachment(activeGroupId, file, options)
+        : activePartnerId
+          ? sendChatAttachment(activePartnerId, file, options)
+          : Promise.resolve(null)
+
+    void uploadPromise
       .then(() => {
         setDraft('')
         setUploadProgress(null)
@@ -322,6 +457,17 @@ export function ChatPage() {
       setSendError(error instanceof Error ? error.message : 'Could not forward message')
     }
   }
+
+  async function handleCreateGroup(name, memberIds) {
+    const group = await createGroup(name, memberIds)
+    if (group) {
+      await selectGroup(group.id)
+    }
+  }
+
+  const hasSelection = Boolean(activePartnerId || activeGroupId)
+  const showSidebar =
+    !showUsersOnMobile && hasSelection ? 'hidden lg:flex lg:flex-col' : 'flex flex-col'
 
   if (!canUseChat) {
     return (
@@ -360,59 +506,286 @@ export function ChatPage() {
         </div>
         <div className="hidden items-center gap-2 rounded-full border border-[var(--color-border)] px-3 py-1.5 text-xs text-[var(--color-muted)] sm:flex">
           <MessageCircle className="h-3.5 w-3.5" />
-          {usersWithMeta.length} users
+          {sortedGroups.length} groups · {usersWithMeta.length} users
         </div>
       </div>
 
       <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
-        <Card
-          className={cn(
-            'min-h-0 overflow-hidden',
-            !showUsersOnMobile && activePartnerId ? 'hidden lg:flex lg:flex-col' : 'flex flex-col',
-          )}
-        >
+        <Card className={cn('min-h-0 overflow-hidden', showSidebar)}>
           <CardHeader className="border-b border-[var(--color-border)] py-4">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Users className="h-4 w-4" />
-              People
-            </CardTitle>
-            <CardDescription>Select someone to start chatting</CardDescription>
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Users className="h-4 w-4" />
+                  Conversations
+                </CardTitle>
+                <CardDescription>Groups and direct messages</CardDescription>
+              </div>
+              {canManageGroups && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCreateGroupOpen(true)}
+                  className="shrink-0"
+                >
+                  <Plus className="h-4 w-4" />
+                  New Group
+                </Button>
+              )}
+            </div>
           </CardHeader>
-          <CardContent className="flex-1 space-y-2 overflow-y-auto p-3">
-            {usersWithMeta.length === 0 ? (
-              <p className="px-2 py-6 text-center text-sm text-[var(--color-muted)]">
-                No other active users in your organization yet.
+          <CardContent className="flex-1 space-y-4 overflow-y-auto p-3">
+            <div className="space-y-2">
+              <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+                Groups
               </p>
-            ) : (
-              usersWithMeta.map((chatUser) => (
-                <UserListItem
-                  key={chatUser.id}
-                  user={chatUser}
-                  isActive={chatUser.id === activePartnerId}
-                  isLive={isUserLive(chatUser.id)}
-                  lastSeenAt={getUserLastSeen(chatUser.id) ?? chatUser.lastSeenAt ?? null}
-                  unreadCount={chatUser.unreadCount}
-                  subtitle={chatUser.subtitle}
-                  onSelect={selectPartner}
-                />
-              ))
-            )}
+              {sortedGroups.length === 0 ? (
+                <p className="px-2 py-3 text-center text-sm text-[var(--color-muted)]">
+                  {canManageGroups
+                    ? 'No groups yet. Create one to get started.'
+                    : 'No groups yet.'}
+                </p>
+              ) : (
+                sortedGroups.map((group) => (
+                  <GroupListItem
+                    key={group.id}
+                    group={group}
+                    isActive={group.id === activeGroupId}
+                    onSelect={selectGroup}
+                  />
+                ))
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+                People
+              </p>
+              {usersWithMeta.length === 0 ? (
+                <p className="px-2 py-3 text-center text-sm text-[var(--color-muted)]">
+                  No other active users in your organization yet.
+                </p>
+              ) : (
+                usersWithMeta.map((chatUser) => (
+                  <UserListItem
+                    key={chatUser.id}
+                    user={chatUser}
+                    isActive={chatUser.id === activePartnerId}
+                    isLive={isUserLive(chatUser.id)}
+                    lastSeenAt={getUserLastSeen(chatUser.id) ?? chatUser.lastSeenAt ?? null}
+                    unreadCount={chatUser.unreadCount}
+                    subtitle={chatUser.subtitle}
+                    onSelect={selectPartner}
+                  />
+                ))
+              )}
+            </div>
           </CardContent>
         </Card>
 
         <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {!activePartnerId ? (
+          {!hasSelection ? (
             <CardContent className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
               <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--color-sidebar-active)] text-[var(--color-primary)]">
                 <MessageCircle className="h-7 w-7" />
               </div>
               <div>
-                <p className="text-lg font-medium text-gray-900">Select a user</p>
+                <p className="text-lg font-medium text-gray-900">Select a conversation</p>
                 <p className="text-sm text-[var(--color-muted)]">
-                  Choose someone from the list to view your conversation.
+                  Choose a group or person from the list to start chatting.
                 </p>
               </div>
             </CardContent>
+          ) : isGroupMode ? (
+            <>
+              <CardHeader className="border-b border-[var(--color-border)] py-4">
+                <div className="flex items-center gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="lg:hidden"
+                    onClick={() => setShowUsersOnMobile(true)}
+                  >
+                    Back
+                  </Button>
+                  <GroupAvatar name={activeGroup?.name ?? 'Group'} />
+                  <div className="min-w-0 flex-1">
+                    <CardTitle className="truncate text-base">
+                      {activeGroup?.name ?? 'Group'}
+                    </CardTitle>
+                    <CardDescription className="truncate">
+                      {activeGroup
+                        ? `${activeGroup.members.length} member${activeGroup.members.length === 1 ? '' : 's'}`
+                        : 'Loading…'}
+                    </CardDescription>
+                  </div>
+                  {canManageGroups && activeGroup && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setManageMembersOpen(true)}
+                    >
+                      Manage
+                    </Button>
+                  )}
+                </div>
+              </CardHeader>
+
+              <CardContent className="flex min-h-0 flex-1 flex-col p-0">
+                {!activeGroup?.currentMember ? (
+                  <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+                    <p className="text-sm text-[var(--color-muted)]">
+                      You are not a member of this group, so you cannot view messages.
+                    </p>
+                    {canManageGroups && (
+                      <Button type="button" onClick={() => setManageMembersOpen(true)}>
+                        Manage members
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex-1 space-y-3 overflow-y-auto p-4">
+                      {activeMessages.length === 0 ? (
+                        <p className="py-8 text-center text-sm text-[var(--color-muted)]">
+                          No messages yet. Say hello to the group.
+                        </p>
+                      ) : (
+                        activeMessages.map((message) => {
+                          const isMine = message.senderId === user?.id
+                          const canShowMenu = !message.id.startsWith('temp-')
+                          return (
+                            <div
+                              key={message.id}
+                              className={cn('flex', isMine ? 'justify-end' : 'justify-start')}
+                            >
+                              <div
+                                role={canShowMenu ? 'button' : undefined}
+                                tabIndex={canShowMenu ? 0 : undefined}
+                                onContextMenu={
+                                  canShowMenu
+                                    ? (event) => openMessageMenu(event, message, setMenuState)
+                                    : undefined
+                                }
+                                onClick={
+                                  canShowMenu
+                                    ? (event) => handleMessageTap(event, message, setMenuState)
+                                    : undefined
+                                }
+                                onKeyDown={
+                                  canShowMenu
+                                    ? (event) => {
+                                        if (event.key === 'Enter' || event.key === ' ') {
+                                          openMessageMenu(event, message, setMenuState)
+                                        }
+                                      }
+                                    : undefined
+                                }
+                                className={cn(
+                                  'max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm',
+                                  canShowMenu && 'cursor-pointer select-none',
+                                  isMine
+                                    ? 'rounded-br-md bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                                    : 'rounded-bl-md border border-[var(--color-border)] bg-white text-gray-900',
+                                )}
+                              >
+                                {!isMine && message.senderName && (
+                                  <p className="mb-1 text-[11px] font-semibold text-[var(--color-primary)]">
+                                    {message.senderName}
+                                  </p>
+                                )}
+                                <ChatMessageContent message={message} isMine={isMine} />
+                                <div
+                                  className={cn(
+                                    'mt-1 flex items-center justify-end gap-1 text-[10px]',
+                                    isMine ? 'text-white/80' : 'text-[var(--color-muted)]',
+                                  )}
+                                >
+                                  <span>{formatMessageTime(message.createdAt)}</span>
+                                  <MessageStatusTicks message={message} isMine={isMine} />
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })
+                      )}
+                      <div ref={messagesEndRef} />
+                    </div>
+
+                    <form
+                      onSubmit={handleSend}
+                      className="border-t border-[var(--color-border)] p-4"
+                    >
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        className="hidden"
+                        accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z"
+                        onChange={handleFileChange}
+                      />
+                      {sendError && (
+                        <p className="mb-2 text-sm text-red-600">{sendError}</p>
+                      )}
+                      {uploadProgress !== null && (
+                        <div className="mb-3">
+                          <div className="mb-1 flex justify-between text-xs text-[var(--color-muted)]">
+                            <span>Uploading…</span>
+                            <span>{uploadProgress}%</span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-gray-200">
+                            <div
+                              className="h-full rounded-full bg-[var(--color-primary)] transition-all"
+                              style={{ width: `${uploadProgress}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                      {!canSendInActiveGroup && (
+                        <p className="mb-2 text-sm text-amber-700">
+                          You are muted in this group and cannot send messages.
+                        </p>
+                      )}
+                      <ChatReplyBar
+                        message={replyToMessage}
+                        onCancel={() => setReplyToMessage(null)}
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={handleAttachClick}
+                          disabled={composerDisabled}
+                          aria-label="Attach image, video, or file"
+                        >
+                          <Paperclip className="h-4 w-4" />
+                        </Button>
+                        <Input
+                          value={draft}
+                          onChange={(event) => setDraft(event.target.value)}
+                          placeholder={
+                            canSendInActiveGroup
+                              ? `Message ${activeGroup?.name ?? 'group'}…`
+                              : 'You are muted'
+                          }
+                          maxLength={4000}
+                          disabled={composerDisabled}
+                        />
+                        <Button
+                          type="submit"
+                          disabled={!draft.trim() || composerDisabled}
+                        >
+                          <Send className="h-4 w-4" />
+                          Send
+                        </Button>
+                      </div>
+                    </form>
+                  </>
+                )}
+              </CardContent>
+            </>
           ) : (
             <>
               <CardHeader className="border-b border-[var(--color-border)] py-4">
@@ -567,30 +940,33 @@ export function ChatPage() {
         x={menuState.x}
         y={menuState.y}
         isMine={menuState.message?.senderId === user?.id}
+        canDeleteForMe={!isGroupMode}
         canDeleteForEveryone={
-          menuState.message?.senderId === user?.id && !menuState.message?.isDeletedForEveryone
+          !isGroupMode &&
+          menuState.message?.senderId === user?.id &&
+          !menuState.message?.isDeletedForEveryone
         }
-        canReply={!menuState.message?.isDeletedForEveryone}
-        canForward={!menuState.message?.isDeletedForEveryone}
+        canReply={!menuState.message?.isDeletedForEveryone && (!isGroupMode || canSendInActiveGroup)}
+        canForward={!isGroupMode && !menuState.message?.isDeletedForEveryone}
         onReply={() => {
           if (menuState.message && !menuState.message.isDeletedForEveryone) {
             setReplyToMessage(menuState.message)
           }
         }}
         onForward={() => {
-          if (menuState.message && !menuState.message.isDeletedForEveryone) {
+          if (menuState.message && !menuState.message.isDeletedForEveryone && !isGroupMode) {
             setForwardMessage(menuState.message)
           }
         }}
         onDeleteForMe={() => {
-          if (menuState.message && activePartnerId) {
+          if (menuState.message && activePartnerId && !isGroupMode) {
             void deleteMessageForMe(activePartnerId, menuState.message.id).catch((error) => {
               setSendError(error instanceof Error ? error.message : 'Could not delete message')
             })
           }
         }}
         onDeleteForEveryone={() => {
-          if (menuState.message && activePartnerId) {
+          if (menuState.message && activePartnerId && !isGroupMode) {
             void deleteMessageForEveryone(activePartnerId, menuState.message.id).catch((error) => {
               setSendError(error instanceof Error ? error.message : 'Could not delete message')
             })
@@ -605,6 +981,34 @@ export function ChatPage() {
         currentPartnerId={activePartnerId}
         onSelect={handleForwardSelect}
         onClose={() => setForwardMessage(null)}
+      />
+
+      <CreateGroupDialog
+        open={createGroupOpen}
+        users={chatUsers}
+        currentUserId={user?.id}
+        onClose={() => setCreateGroupOpen(false)}
+        onCreate={handleCreateGroup}
+      />
+
+      <ManageGroupMembersDialog
+        open={manageMembersOpen}
+        group={activeGroup}
+        users={chatUsers}
+        currentUserId={user?.id}
+        onClose={() => setManageMembersOpen(false)}
+        onAddMembers={async (userIds) => {
+          if (!activeGroupId) return
+          await addGroupMembers(activeGroupId, userIds)
+        }}
+        onRemoveMember={async (userId) => {
+          if (!activeGroupId) return
+          await removeGroupMember(activeGroupId, userId)
+        }}
+        onSetCanSend={async (userId, canSend) => {
+          if (!activeGroupId) return
+          await setGroupMemberCanSend(activeGroupId, userId, canSend)
+        }}
       />
     </div>
   )

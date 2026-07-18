@@ -11,16 +11,22 @@ import { classifyChatFile } from '@/lib/chat-attachment'
 import { useAuth } from '@/contexts/use-auth'
 import { ChatContext } from './chat-context'
 
-function upsertNotification(prev, { partnerId, partnerName, preview }) {
-  const existing = prev.find((item) => item.partnerId === partnerId)
+function notificationKey({ partnerId, groupId }) {
+  return groupId ? `group:${groupId}` : `dm:${partnerId}`
+}
+
+function upsertNotification(prev, { partnerId, groupId, title, preview }) {
+  const key = notificationKey({ partnerId, groupId })
+  const existing = prev.find((item) => item.key === key)
 
   if (existing) {
     return prev.map((item) =>
-      item.partnerId === partnerId
+      item.key === key
         ? {
             ...item,
             count: item.count + 1,
             preview,
+            title,
             updatedAt: Date.now(),
           }
         : item,
@@ -30,8 +36,10 @@ function upsertNotification(prev, { partnerId, partnerName, preview }) {
   return [
     ...prev,
     {
-      partnerId,
-      partnerName,
+      key,
+      partnerId: partnerId ?? null,
+      groupId: groupId ?? null,
+      title,
       preview,
       count: 1,
       updatedAt: Date.now(),
@@ -39,33 +47,74 @@ function upsertNotification(prev, { partnerId, partnerName, preview }) {
   ]
 }
 
+function sumUnread(conversations, groups) {
+  const dmUnread = asGroupList(conversations).reduce((sum, item) => sum + (item.unreadCount ?? 0), 0)
+  const groupUnread = asGroupList(groups).reduce((sum, item) => sum + (item.unreadCount ?? 0), 0)
+  return dmUnread + groupUnread
+}
+
+function asGroupList(value) {
+  return Array.isArray(value) ? value : []
+}
+
 export function ChatProvider({ children }) {
   const { user, hasFeature } = useAuth()
   const pathname = usePathname()
   const socketRef = useRef(null)
   const activePartnerRef = useRef(null)
+  const activeGroupRef = useRef(null)
   const isOnChatPageRef = useRef(false)
   const userIdRef = useRef(user?.id)
+  const groupsRef = useRef([])
 
   const [isConnected, setIsConnected] = useState(false)
   const [chatUsers, setChatUsers] = useState([])
   const [conversations, setConversations] = useState([])
+  const [groups, setGroupsState] = useState([])
+  const setGroups = useCallback((updater) => {
+    setGroupsState((prev) => {
+      const current = asGroupList(prev)
+      const next = typeof updater === 'function' ? updater(current) : updater
+      const normalized = asGroupList(next)
+      groupsRef.current = normalized
+      return normalized
+    })
+  }, [])
   const [messagesByPartner, setMessagesByPartner] = useState({})
+  const [messagesByGroup, setMessagesByGroup] = useState({})
   const [activePartnerId, setActivePartnerIdState] = useState(null)
+  const [activeGroupId, setActiveGroupIdState] = useState(null)
   const [isOnChatPage, setIsOnChatPage] = useState(false)
   const [notifications, setNotifications] = useState([])
-  const [totalUnread, setTotalUnread] = useState(0)
   const [liveUserIds, setLiveUserIds] = useState(() => new Set())
   const [lastSeenByUserId, setLastSeenByUserId] = useState({})
 
   userIdRef.current = user?.id
+  groupsRef.current = groups
 
   const canUseChat = Boolean(user && hasFeature(AppFeature.CHAT))
   const isChatRoute = pathname?.includes('/chat') ?? false
+  const totalUnread = useMemo(
+    () => sumUnread(conversations, groups),
+    [conversations, groups],
+  )
 
   const setActivePartnerId = useCallback((partnerId) => {
     activePartnerRef.current = partnerId
     setActivePartnerIdState(partnerId)
+    if (partnerId) {
+      activeGroupRef.current = null
+      setActiveGroupIdState(null)
+    }
+  }, [])
+
+  const setActiveGroupId = useCallback((groupId) => {
+    activeGroupRef.current = groupId
+    setActiveGroupIdState(groupId)
+    if (groupId) {
+      activePartnerRef.current = null
+      setActivePartnerIdState(null)
+    }
   }, [])
 
   const emitPresence = useCallback((inChat) => {
@@ -106,11 +155,19 @@ export function ChatProvider({ children }) {
     try {
       const response = await apiFetch('/api/chat/conversations')
       setConversations(response.data)
-      const unread = response.data.reduce((sum, item) => sum + item.unreadCount, 0)
-      setTotalUnread(unread)
     } catch {
       setConversations([])
-      setTotalUnread(0)
+    }
+  }, [canUseChat])
+
+  const refreshGroups = useCallback(async () => {
+    if (!canUseChat) return
+
+    try {
+      const response = await apiFetch('/api/chat/groups')
+      setGroups(Array.isArray(response.data) ? response.data : [])
+    } catch {
+      setGroups([])
     }
   }, [canUseChat])
 
@@ -149,6 +206,21 @@ export function ChatProvider({ children }) {
     [canUseChat],
   )
 
+  const loadGroupMessages = useCallback(
+    async (groupId) => {
+      if (!canUseChat || !groupId) return []
+
+      try {
+        const response = await apiFetch(`/api/chat/groups/${groupId}/messages`)
+        setMessagesByGroup((prev) => ({ ...prev, [groupId]: response.data }))
+        return response.data
+      } catch {
+        return []
+      }
+    },
+    [canUseChat],
+  )
+
   const markConversationRead = useCallback(
     async (partnerId) => {
       if (!canUseChat || !partnerId) return
@@ -160,16 +232,31 @@ export function ChatProvider({ children }) {
         await apiFetch(`/api/chat/messages/${partnerId}/read`, { method: 'POST' })
       }
 
-      setConversations((prev) => {
-        const unread = prev.find((item) => item.partnerId === partnerId)?.unreadCount ?? 0
-        if (unread > 0) {
-          setTotalUnread((total) => Math.max(0, total - unread))
-        }
-        return prev.map((item) =>
+      setConversations((prev) =>
+        prev.map((item) =>
           item.partnerId === partnerId ? { ...item, unreadCount: 0 } : item,
-        )
-      })
+        ),
+      )
       setNotifications((prev) => prev.filter((item) => item.partnerId !== partnerId))
+    },
+    [canUseChat],
+  )
+
+  const markGroupRead = useCallback(
+    async (groupId) => {
+      if (!canUseChat || !groupId) return
+
+      const socket = socketRef.current
+      if (socket?.connected) {
+        socket.emit('chat:group:mark-read', { groupId })
+      } else {
+        await apiFetch(`/api/chat/groups/${groupId}/read`, { method: 'POST' })
+      }
+
+      setGroups((prev) =>
+        prev.map((item) => (item.id === groupId ? { ...item, unreadCount: 0 } : item)),
+      )
+      setNotifications((prev) => prev.filter((item) => item.groupId !== groupId))
     },
     [canUseChat],
   )
@@ -219,6 +306,49 @@ export function ChatProvider({ children }) {
     })
   }, [])
 
+  const appendGroupMessage = useCallback((message) => {
+    const groupId = message.groupId
+    if (!groupId) return
+
+    const currentUserId = userIdRef.current
+
+    setMessagesByGroup((prev) => {
+      const existing = prev[groupId] ?? []
+      if (existing.some((item) => item.id === message.id)) {
+        return prev
+      }
+      return {
+        ...prev,
+        [groupId]: [...existing, message],
+      }
+    })
+
+    setGroups((prev) => {
+      const previous = prev.find((item) => item.id === groupId)
+      if (!previous) {
+        return prev
+      }
+
+      const isIncoming = message.senderId !== currentUserId
+      const viewingGroup =
+        isOnChatPageRef.current && activeGroupRef.current === groupId
+      const unreadCount =
+        isIncoming && !viewingGroup
+          ? (previous.unreadCount ?? 0) + 1
+          : previous.unreadCount ?? 0
+
+      const next = prev.filter((item) => item.id !== groupId)
+      return [
+        {
+          ...previous,
+          lastMessage: message,
+          unreadCount,
+        },
+        ...next,
+      ]
+    })
+  }, [])
+
   const replaceOptimisticMessage = useCallback((partnerId, clientId, confirmed) => {
     const nextMessage = {
       ...confirmed,
@@ -250,10 +380,50 @@ export function ChatProvider({ children }) {
     )
   }, [])
 
+  const replaceOptimisticGroupMessage = useCallback((groupId, clientId, confirmed) => {
+    const nextMessage = {
+      ...confirmed,
+      deliveredAt: confirmed.deliveredAt ?? null,
+      readAt: confirmed.readAt ?? null,
+      attachmentType: confirmed.attachmentType ?? null,
+      attachmentUrl: confirmed.attachmentUrl ?? null,
+      attachmentName: confirmed.attachmentName ?? null,
+      attachmentMimeType: confirmed.attachmentMimeType ?? null,
+      attachmentSize: confirmed.attachmentSize ?? null,
+      replyToMessageId: confirmed.replyToMessageId ?? null,
+      replyTo: confirmed.replyTo ?? null,
+      forwardedFromId: confirmed.forwardedFromId ?? null,
+      isDeletedForEveryone: confirmed.isDeletedForEveryone ?? false,
+      clientStatus: 'sent',
+    }
+
+    setMessagesByGroup((prev) => ({
+      ...prev,
+      [groupId]: (prev[groupId] ?? []).map((item) =>
+        item.id === clientId ? nextMessage : item,
+      ),
+    }))
+
+    setGroups((prev) =>
+      prev.map((item) =>
+        item.id === groupId ? { ...item, lastMessage: nextMessage } : item,
+      ),
+    )
+  }, [])
+
   const markOptimisticFailed = useCallback((partnerId, clientId) => {
     setMessagesByPartner((prev) => ({
       ...prev,
       [partnerId]: (prev[partnerId] ?? []).map((item) =>
+        item.id === clientId ? { ...item, failed: true, clientStatus: 'failed' } : item,
+      ),
+    }))
+  }, [])
+
+  const markOptimisticGroupFailed = useCallback((groupId, clientId) => {
+    setMessagesByGroup((prev) => ({
+      ...prev,
+      [groupId]: (prev[groupId] ?? []).map((item) =>
         item.id === clientId ? { ...item, failed: true, clientStatus: 'failed' } : item,
       ),
     }))
@@ -310,6 +480,13 @@ export function ChatProvider({ children }) {
     )
   }, [])
 
+  const upsertGroupLocally = useCallback((group) => {
+    setGroups((prev) => {
+      const without = prev.filter((item) => item.id !== group.id)
+      return [group, ...without]
+    })
+  }, [])
+
   const handleIncomingMessage = useCallback(
     (message) => {
       appendMessage(message)
@@ -329,11 +506,10 @@ export function ChatProvider({ children }) {
       }
 
       if (isIncoming && !viewingConversation) {
-        setTotalUnread((prev) => prev + 1)
         setNotifications((prev) =>
           upsertNotification(prev, {
             partnerId: message.senderId,
-            partnerName: message.senderName ?? 'User',
+            title: message.senderName ?? 'User',
             preview: getChatMessagePreview(message),
           }),
         )
@@ -358,6 +534,53 @@ export function ChatProvider({ children }) {
     [appendMessage],
   )
 
+  const handleIncomingGroupMessage = useCallback(
+    (message) => {
+      if (!message?.groupId) return
+
+      appendGroupMessage(message)
+
+      const currentUserId = userIdRef.current
+      const isIncoming = message.senderId !== currentUserId
+      const viewingGroup =
+        isOnChatPageRef.current && activeGroupRef.current === message.groupId
+
+      if (!isIncoming) return
+
+      playChatIncomingSound({ inConversation: viewingGroup })
+
+      if (!viewingGroup) {
+        const groupName =
+          groupsRef.current.find((item) => item.id === message.groupId)?.name ?? 'Group'
+        setNotifications((prev) =>
+          upsertNotification(prev, {
+            groupId: message.groupId,
+            title: groupName,
+            preview: `${message.senderName ?? 'User'}: ${getChatMessagePreview(message)}`,
+          }),
+        )
+        return
+      }
+
+      const socket = socketRef.current
+      if (socket?.connected) {
+        socket.emit('chat:group:mark-read', { groupId: message.groupId })
+      } else {
+        void apiFetch(`/api/chat/groups/${message.groupId}/read`, { method: 'POST' })
+      }
+
+      setGroups((prev) =>
+        prev.map((item) =>
+          item.id === message.groupId ? { ...item, unreadCount: 0 } : item,
+        ),
+      )
+      setNotifications((prev) =>
+        prev.filter((item) => item.groupId !== message.groupId),
+      )
+    },
+    [appendGroupMessage],
+  )
+
   const sendMessage = useCallback(
     async (recipientId, body, { replyToMessageId } = {}) => {
       const trimmed = body.trim()
@@ -372,6 +595,7 @@ export function ChatProvider({ children }) {
         id: clientId,
         senderId: currentUserId,
         recipientId,
+        groupId: null,
         body: trimmed,
         createdAt: new Date().toISOString(),
         deliveredAt: null,
@@ -423,6 +647,86 @@ export function ChatProvider({ children }) {
     [appendMessage, canUseChat, markOptimisticFailed, replaceOptimisticMessage],
   )
 
+  const sendGroupMessage = useCallback(
+    async (groupId, body, { replyToMessageId } = {}) => {
+      const trimmed = body.trim()
+      const currentUserId = userIdRef.current
+
+      if (!canUseChat || !groupId || !trimmed || !currentUserId) {
+        return null
+      }
+
+      const clientId = `temp-${crypto.randomUUID()}`
+      const optimistic = {
+        id: clientId,
+        senderId: currentUserId,
+        recipientId: null,
+        groupId,
+        body: trimmed,
+        createdAt: new Date().toISOString(),
+        deliveredAt: null,
+        readAt: null,
+        attachmentType: null,
+        attachmentUrl: null,
+        attachmentName: null,
+        attachmentMimeType: null,
+        attachmentSize: null,
+        replyToMessageId: replyToMessageId ?? null,
+        replyTo: null,
+        forwardedFromId: null,
+        isDeletedForEveryone: false,
+        senderName: user?.name,
+        clientStatus: 'sending',
+      }
+
+      appendGroupMessage(optimistic)
+      playChatSentSound()
+
+      const payload = {
+        groupId,
+        body: trimmed,
+        ...(replyToMessageId ? { replyToMessageId } : {}),
+      }
+
+      try {
+        const socket = socketRef.current
+        if (socket?.connected) {
+          const confirmed = await new Promise((resolve, reject) => {
+            socket.emit('chat:group:send', payload, (response) => {
+              if (!response?.ok) {
+                reject(new Error(response?.error ?? 'Failed to send group message'))
+                return
+              }
+              resolve(response.data)
+            })
+          })
+          replaceOptimisticGroupMessage(groupId, clientId, confirmed)
+          return confirmed
+        }
+
+        const response = await apiFetch(`/api/chat/groups/${groupId}/messages`, {
+          method: 'POST',
+          body: JSON.stringify({
+            body: trimmed,
+            ...(replyToMessageId ? { replyToMessageId } : {}),
+          }),
+        })
+        replaceOptimisticGroupMessage(groupId, clientId, response.data)
+        return response.data
+      } catch (error) {
+        markOptimisticGroupFailed(groupId, clientId)
+        throw error
+      }
+    },
+    [
+      appendGroupMessage,
+      canUseChat,
+      markOptimisticGroupFailed,
+      replaceOptimisticGroupMessage,
+      user?.name,
+    ],
+  )
+
   const sendChatAttachment = useCallback(
     async (recipientId, file, { body = '', onProgress } = {}) => {
       const currentUserId = userIdRef.current
@@ -437,6 +741,7 @@ export function ChatProvider({ children }) {
         id: clientId,
         senderId: currentUserId,
         recipientId,
+        groupId: null,
         body: body.trim(),
         createdAt: new Date().toISOString(),
         deliveredAt: null,
@@ -474,6 +779,132 @@ export function ChatProvider({ children }) {
       }
     },
     [appendMessage, canUseChat, markOptimisticFailed, replaceOptimisticMessage],
+  )
+
+  const sendGroupAttachment = useCallback(
+    async (groupId, file, { body = '', onProgress } = {}) => {
+      const currentUserId = userIdRef.current
+
+      if (!canUseChat || !groupId || !file || !currentUserId) {
+        return null
+      }
+
+      const clientId = `temp-${crypto.randomUUID()}`
+      const previewUrl = URL.createObjectURL(file)
+      const optimistic = {
+        id: clientId,
+        senderId: currentUserId,
+        recipientId: null,
+        groupId,
+        body: body.trim(),
+        createdAt: new Date().toISOString(),
+        deliveredAt: null,
+        readAt: null,
+        attachmentType: classifyChatFile(file),
+        attachmentUrl: previewUrl,
+        attachmentName: file.name,
+        attachmentMimeType: file.type || 'application/octet-stream',
+        attachmentSize: file.size,
+        senderName: user?.name,
+        clientStatus: 'sending',
+      }
+
+      appendGroupMessage(optimistic)
+      playChatSentSound()
+
+      const formData = new FormData()
+      formData.append('file', file)
+      if (body.trim()) {
+        formData.append('body', body.trim())
+      }
+
+      try {
+        const response = await apiUploadFormData(
+          `/api/chat/groups/${groupId}/messages/attachment`,
+          formData,
+          onProgress,
+        )
+        URL.revokeObjectURL(previewUrl)
+        replaceOptimisticGroupMessage(groupId, clientId, response.data)
+        return response.data
+      } catch (error) {
+        URL.revokeObjectURL(previewUrl)
+        markOptimisticGroupFailed(groupId, clientId)
+        throw error
+      }
+    },
+    [
+      appendGroupMessage,
+      canUseChat,
+      markOptimisticGroupFailed,
+      replaceOptimisticGroupMessage,
+      user?.name,
+    ],
+  )
+
+  const createGroup = useCallback(
+    async (name, memberIds = []) => {
+      if (!canUseChat) return null
+
+      const response = await apiFetch('/api/chat/groups', {
+        method: 'POST',
+        body: JSON.stringify({ name, memberIds }),
+      })
+      upsertGroupLocally(response.data)
+      return response.data
+    },
+    [canUseChat, upsertGroupLocally],
+  )
+
+  const addGroupMembers = useCallback(
+    async (groupId, userIds) => {
+      if (!canUseChat || !groupId || !userIds?.length) return null
+
+      const response = await apiFetch(`/api/chat/groups/${groupId}/members`, {
+        method: 'POST',
+        body: JSON.stringify({ userIds }),
+      })
+      upsertGroupLocally(response.data)
+      return response.data
+    },
+    [canUseChat, upsertGroupLocally],
+  )
+
+  const removeGroupMember = useCallback(
+    async (groupId, userId) => {
+      if (!canUseChat || !groupId || !userId) return null
+
+      const response = await apiFetch(`/api/chat/groups/${groupId}/members/${userId}`, {
+        method: 'DELETE',
+      })
+      upsertGroupLocally(response.data)
+
+      if (userId === userIdRef.current && activeGroupRef.current === groupId) {
+        setActiveGroupId(null)
+        setMessagesByGroup((prev) => {
+          const next = { ...prev }
+          delete next[groupId]
+          return next
+        })
+      }
+
+      return response.data
+    },
+    [canUseChat, setActiveGroupId, upsertGroupLocally],
+  )
+
+  const updateGroupMemberMute = useCallback(
+    async (groupId, userId, canSend) => {
+      if (!canUseChat || !groupId || !userId) return null
+
+      const response = await apiFetch(`/api/chat/groups/${groupId}/members/${userId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ canSend }),
+      })
+      upsertGroupLocally(response.data)
+      return response.data
+    },
+    [canUseChat, upsertGroupLocally],
   )
 
   const deleteMessageForMe = useCallback(
@@ -523,8 +954,24 @@ export function ChatProvider({ children }) {
     [appendMessage, canUseChat],
   )
 
-  const dismissNotification = useCallback((partnerId) => {
-    setNotifications((prev) => prev.filter((item) => item.partnerId !== partnerId))
+  const dismissNotification = useCallback((target) => {
+    if (!target) return
+
+    if (typeof target === 'string') {
+      setNotifications((prev) =>
+        prev.filter((item) => item.partnerId !== target && item.groupId !== target),
+      )
+      return
+    }
+
+    if (target.groupId) {
+      setNotifications((prev) => prev.filter((item) => item.groupId !== target.groupId))
+      return
+    }
+
+    if (target.partnerId) {
+      setNotifications((prev) => prev.filter((item) => item.partnerId !== target.partnerId))
+    }
   }, [])
 
   const clearNotifications = useCallback(() => {
@@ -532,19 +979,24 @@ export function ChatProvider({ children }) {
   }, [])
 
   const refreshConversationsRef = useRef(refreshConversations)
+  const refreshGroupsRef = useRef(refreshGroups)
   const refreshUsersRef = useRef(refreshUsers)
   const handleIncomingMessageRef = useRef(handleIncomingMessage)
+  const handleIncomingGroupMessageRef = useRef(handleIncomingGroupMessage)
   const applyMessageDeliveredRef = useRef(applyMessageDelivered)
   const applyMessagesReadRef = useRef(applyMessagesRead)
-
   const applyMessageDeletedForEveryoneRef = useRef(applyMessageDeletedForEveryone)
+  const setActiveGroupIdRef = useRef(setActiveGroupId)
 
   refreshConversationsRef.current = refreshConversations
+  refreshGroupsRef.current = refreshGroups
   refreshUsersRef.current = refreshUsers
   handleIncomingMessageRef.current = handleIncomingMessage
+  handleIncomingGroupMessageRef.current = handleIncomingGroupMessage
   applyMessageDeliveredRef.current = applyMessageDelivered
   applyMessagesReadRef.current = applyMessagesRead
   applyMessageDeletedForEveryoneRef.current = applyMessageDeletedForEveryone
+  setActiveGroupIdRef.current = setActiveGroupId
 
   useEffect(() => {
     if (!canUseChat || !API_BASE_URL) {
@@ -574,6 +1026,7 @@ export function ChatProvider({ children }) {
         socket.emit('chat:presence', { inChat: true })
       }
       void refreshConversationsRef.current()
+      void refreshGroupsRef.current()
       void refreshUsersRef.current()
     }
 
@@ -585,6 +1038,10 @@ export function ChatProvider({ children }) {
       handleIncomingMessageRef.current(message)
     }
 
+    const onGroupMessage = (message) => {
+      handleIncomingGroupMessageRef.current(message)
+    }
+
     const onRead = (payload) => {
       if (payload?.partnerId && Array.isArray(payload.messageIds)) {
         applyMessagesReadRef.current(
@@ -594,6 +1051,10 @@ export function ChatProvider({ children }) {
         )
       }
       void refreshConversationsRef.current()
+    }
+
+    const onGroupRead = () => {
+      void refreshGroupsRef.current()
     }
 
     const onDelivered = (payload) => {
@@ -611,7 +1072,30 @@ export function ChatProvider({ children }) {
           ? payload.message.recipientId
           : payload.message.senderId
 
+      if (!partnerId) return
+
       applyMessageDeletedForEveryoneRef.current(partnerId, payload.message)
+    }
+
+    const onMembershipUpdated = (payload) => {
+      const currentUserId = userIdRef.current
+      const removed = Array.isArray(payload?.removedUserIds) ? payload.removedUserIds : []
+
+      if (currentUserId && removed.includes(currentUserId)) {
+        if (activeGroupRef.current === payload.groupId) {
+          setActiveGroupIdRef.current(null)
+        }
+        setMessagesByGroup((prev) => {
+          const next = { ...prev }
+          delete next[payload.groupId]
+          return next
+        })
+        setNotifications((prev) =>
+          prev.filter((item) => item.groupId !== payload.groupId),
+        )
+      }
+
+      void refreshGroupsRef.current()
     }
 
     const onPresenceSync = ({ liveUserIds: nextLiveUserIds, lastSeenByUserId: nextLastSeen }) => {
@@ -624,9 +1108,12 @@ export function ChatProvider({ children }) {
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
     socket.on('chat:message', onMessage)
+    socket.on('chat:group:message', onGroupMessage)
     socket.on('chat:read', onRead)
+    socket.on('chat:group:read', onGroupRead)
     socket.on('chat:delivered', onDelivered)
     socket.on('chat:message-deleted', onMessageDeleted)
+    socket.on('chat:group:membership-updated', onMembershipUpdated)
     socket.on('chat:presence:sync', onPresenceSync)
 
     if (socket.connected) {
@@ -637,9 +1124,12 @@ export function ChatProvider({ children }) {
       socket.off('connect', onConnect)
       socket.off('disconnect', onDisconnect)
       socket.off('chat:message', onMessage)
+      socket.off('chat:group:message', onGroupMessage)
       socket.off('chat:read', onRead)
+      socket.off('chat:group:read', onGroupRead)
       socket.off('chat:delivered', onDelivered)
       socket.off('chat:message-deleted', onMessageDeleted)
+      socket.off('chat:group:membership-updated', onMembershipUpdated)
       socket.off('chat:presence:sync', onPresenceSync)
 
       if (isOnChatPageRef.current) {
@@ -656,13 +1146,15 @@ export function ChatProvider({ children }) {
     if (!canUseChat) {
       setChatUsers([])
       setConversations([])
+      setGroups([])
       setMessagesByPartner({})
+      setMessagesByGroup({})
       setNotifications([])
-      setTotalUnread(0)
       setActivePartnerId(null)
+      setActiveGroupId(null)
       setLiveUserIds(new Set())
     }
-  }, [canUseChat, setActivePartnerId])
+  }, [canUseChat, setActiveGroupId, setActivePartnerId])
 
   useEffect(() => {
     if (!isChatRoute && isOnChatPage) {
@@ -687,25 +1179,38 @@ export function ChatProvider({ children }) {
     () => ({
       isConnected,
       canUseChat,
-      chatUsers,
-      conversations,
+      chatUsers: Array.isArray(chatUsers) ? chatUsers : [],
+      conversations: Array.isArray(conversations) ? conversations : [],
+      groups: asGroupList(groups),
       messagesByPartner,
+      messagesByGroup,
       activePartnerId,
+      activeGroupId,
       isOnChatPage,
       notifications,
       totalUnread,
       liveUserIds,
       isChatRoute,
       setActivePartnerId,
+      setActiveGroupId,
       setChatPageActive,
       isUserLive,
       getUserLastSeen,
       refreshUsers,
       refreshConversations,
+      refreshGroups,
       loadMessages,
+      loadGroupMessages,
       markConversationRead,
+      markGroupRead,
       sendMessage,
+      sendGroupMessage,
       sendChatAttachment,
+      sendGroupAttachment,
+      createGroup,
+      addGroupMembers,
+      removeGroupMember,
+      updateGroupMemberMute,
       deleteMessageForMe,
       deleteMessageForEveryone,
       forwardMessage,
@@ -717,23 +1222,36 @@ export function ChatProvider({ children }) {
       canUseChat,
       chatUsers,
       conversations,
+      groups,
       messagesByPartner,
+      messagesByGroup,
       activePartnerId,
+      activeGroupId,
       isOnChatPage,
       notifications,
       totalUnread,
       liveUserIds,
       isChatRoute,
       setActivePartnerId,
+      setActiveGroupId,
       setChatPageActive,
       isUserLive,
       getUserLastSeen,
       refreshUsers,
       refreshConversations,
+      refreshGroups,
       loadMessages,
+      loadGroupMessages,
       markConversationRead,
+      markGroupRead,
       sendMessage,
+      sendGroupMessage,
       sendChatAttachment,
+      sendGroupAttachment,
+      createGroup,
+      addGroupMembers,
+      removeGroupMember,
+      updateGroupMemberMute,
       deleteMessageForMe,
       deleteMessageForEveryone,
       forwardMessage,

@@ -1,27 +1,57 @@
 import { Router } from 'express'
-import { AppFeature, chatMessagesQuerySchema, forwardChatMessageSchema, sendChatMessageSchema } from '@myinventory/shared'
+import {
+  AppFeature,
+  UserRole,
+  addChatGroupMembersSchema,
+  chatMessagesQuerySchema,
+  createChatGroupSchema,
+  forwardChatMessageSchema,
+  sendChatMessageSchema,
+  updateChatGroupMemberSchema,
+  updateChatGroupSchema,
+} from '@myinventory/shared'
 import { asyncHandler } from '../../utils/async-handler.js'
 import { authenticate, type AuthenticatedRequest } from '../../middleware/auth.js'
 import { requireFeatures } from '../../middleware/feature-access.js'
+import { requireRoles } from '../../middleware/rbac.js'
 import { validateBody, validateQuery } from '../../middleware/validate.js'
 import { requireOrgId } from '../../lib/org-context.js'
 import { AppError } from '../../middleware/error-handler.js'
 import {
   deleteChatMessageForEveryone,
   deleteChatMessageForMe,
+  addChatGroupMembers,
+  createChatGroup,
   forwardChatMessage,
+  getChatGroup,
+  getChatGroupMessages,
   getConversationMessages,
   getTotalUnreadCount,
   listChatUsers,
+  listChatGroups,
   listConversations,
+  markChatGroupRead,
   markConversationRead,
+  removeChatGroupMember,
+  sendChatGroupAttachmentMessage,
+  sendChatGroupMessage,
   sendChatAttachmentMessage,
   sendChatMessage,
+  updateChatGroup,
+  updateChatGroupMemberCanSend,
 } from './chat.service.js'
 import { chatAttachmentUpload } from './chat.upload.js'
-import { emitChatMessage, emitChatMessageDeleted, emitChatRead } from './chat.socket.js'
+import {
+  emitChatGroupMembershipUpdated,
+  emitChatGroupMessage,
+  emitChatGroupRead,
+  emitChatMessage,
+  emitChatMessageDeleted,
+  emitChatRead,
+} from './chat.socket.js'
 
 export const chatRouter = Router()
+const groupManageRoles = [UserRole.ADMIN, UserRole.MANAGER]
 
 chatRouter.get(
   '/chat/users',
@@ -56,6 +86,244 @@ chatRouter.get(
     const orgId = requireOrgId(req)
     const count = await getTotalUnreadCount(orgId, user.sub)
     res.json({ data: { count } })
+  }),
+)
+
+chatRouter.post(
+  '/chat/groups',
+  asyncHandler(authenticate),
+  requireFeatures(AppFeature.CHAT),
+  requireRoles(...groupManageRoles),
+  validateBody(createChatGroupSchema),
+  asyncHandler(async (req, res) => {
+    const { user } = req as AuthenticatedRequest
+    const orgId = requireOrgId(req)
+    const group = await createChatGroup(orgId, user.sub, user.role, req.body)
+    emitChatGroupMembershipUpdated({
+      groupId: group.id,
+      group,
+      addedUserIds: group.members.map((member) => member.user.id),
+      removedUserIds: [],
+      actorId: user.sub,
+    })
+    res.status(201).json({ data: group })
+  }),
+)
+
+chatRouter.get(
+  '/chat/groups',
+  asyncHandler(authenticate),
+  requireFeatures(AppFeature.CHAT),
+  asyncHandler(async (req, res) => {
+    const { user } = req as AuthenticatedRequest
+    const groups = await listChatGroups(requireOrgId(req), user.sub, user.role)
+    res.json({ data: groups })
+  }),
+)
+
+chatRouter.get(
+  '/chat/groups/:groupId',
+  asyncHandler(authenticate),
+  requireFeatures(AppFeature.CHAT),
+  asyncHandler(async (req, res) => {
+    const { user } = req as AuthenticatedRequest
+    const group = await getChatGroup(requireOrgId(req), user.sub, user.role, req.params.groupId)
+    res.json({ data: group })
+  }),
+)
+
+chatRouter.patch(
+  '/chat/groups/:groupId',
+  asyncHandler(authenticate),
+  requireFeatures(AppFeature.CHAT),
+  requireRoles(...groupManageRoles),
+  validateBody(updateChatGroupSchema),
+  asyncHandler(async (req, res) => {
+    const { user } = req as AuthenticatedRequest
+    const group = await updateChatGroup(
+      requireOrgId(req),
+      user.sub,
+      user.role,
+      req.params.groupId,
+      req.body.name,
+    )
+    emitChatGroupMembershipUpdated({
+      groupId: group.id,
+      group,
+      addedUserIds: [],
+      removedUserIds: [],
+      actorId: user.sub,
+    })
+    res.json({ data: group })
+  }),
+)
+
+chatRouter.post(
+  '/chat/groups/:groupId/members',
+  asyncHandler(authenticate),
+  requireFeatures(AppFeature.CHAT),
+  requireRoles(...groupManageRoles),
+  validateBody(addChatGroupMembersSchema),
+  asyncHandler(async (req, res) => {
+    const { user } = req as AuthenticatedRequest
+    const result = await addChatGroupMembers(
+      requireOrgId(req),
+      user.sub,
+      user.role,
+      req.params.groupId,
+      req.body.userIds,
+    )
+    emitChatGroupMembershipUpdated({
+      groupId: result.group.id,
+      group: result.group,
+      addedUserIds: result.addedUserIds,
+      removedUserIds: [],
+      actorId: user.sub,
+    })
+    res.json({ data: result.group })
+  }),
+)
+
+chatRouter.delete(
+  '/chat/groups/:groupId/members/:userId',
+  asyncHandler(authenticate),
+  requireFeatures(AppFeature.CHAT),
+  requireRoles(...groupManageRoles),
+  asyncHandler(async (req, res) => {
+    const { user } = req as AuthenticatedRequest
+    const result = await removeChatGroupMember(
+      requireOrgId(req),
+      user.sub,
+      user.role,
+      req.params.groupId,
+      req.params.userId,
+    )
+    emitChatGroupMembershipUpdated({
+      groupId: result.group.id,
+      group: result.group,
+      addedUserIds: [],
+      removedUserIds: [result.removedUserId],
+      actorId: user.sub,
+    })
+    res.json({ data: result.group })
+  }),
+)
+
+chatRouter.patch(
+  '/chat/groups/:groupId/members/:userId',
+  asyncHandler(authenticate),
+  requireFeatures(AppFeature.CHAT),
+  requireRoles(...groupManageRoles),
+  validateBody(updateChatGroupMemberSchema),
+  asyncHandler(async (req, res) => {
+    const { user } = req as AuthenticatedRequest
+    const group = await updateChatGroupMemberCanSend(
+      requireOrgId(req),
+      user.sub,
+      user.role,
+      req.params.groupId,
+      req.params.userId,
+      req.body.canSend,
+    )
+    emitChatGroupMembershipUpdated({
+      groupId: group.id,
+      group,
+      addedUserIds: [],
+      removedUserIds: [],
+      canSendUpdates: [{ userId: req.params.userId, canSend: req.body.canSend }],
+      actorId: user.sub,
+    })
+    res.json({ data: group })
+  }),
+)
+
+chatRouter.get(
+  '/chat/groups/:groupId/messages',
+  asyncHandler(authenticate),
+  requireFeatures(AppFeature.CHAT),
+  validateQuery(chatMessagesQuerySchema),
+  asyncHandler(async (req, res) => {
+    const { user } = req as AuthenticatedRequest
+    const query = chatMessagesQuerySchema.parse(req.query)
+    const messages = await getChatGroupMessages(
+      requireOrgId(req),
+      user.sub,
+      req.params.groupId,
+      query,
+    )
+    res.json({ data: messages })
+  }),
+)
+
+chatRouter.post(
+  '/chat/groups/:groupId/messages',
+  asyncHandler(authenticate),
+  requireFeatures(AppFeature.CHAT),
+  validateBody(sendChatMessageSchema),
+  asyncHandler(async (req, res) => {
+    const { user } = req as AuthenticatedRequest
+    const message = await sendChatGroupMessage(
+      requireOrgId(req),
+      user.sub,
+      req.params.groupId,
+      req.body.body,
+      req.body.replyToMessageId,
+    )
+    emitChatGroupMessage(message)
+    res.status(201).json({ data: message })
+  }),
+)
+
+chatRouter.post(
+  '/chat/groups/:groupId/messages/attachment',
+  asyncHandler(authenticate),
+  requireFeatures(AppFeature.CHAT),
+  (req, res, next) => {
+    chatAttachmentUpload.single('file')(req, res, (error: unknown) => {
+      if (!error) {
+        next()
+        return
+      }
+      const multerError = error as { code?: string }
+      next(
+        multerError.code === 'LIMIT_FILE_SIZE'
+          ? new AppError(400, 'File exceeds the maximum allowed size')
+          : error instanceof Error
+            ? error
+            : new AppError(400, 'Upload failed'),
+      )
+    })
+  },
+  asyncHandler(async (req, res) => {
+    const { user } = req as AuthenticatedRequest
+    if (!req.file) {
+      throw new AppError(400, 'A file is required')
+    }
+    const message = await sendChatGroupAttachmentMessage(
+      requireOrgId(req),
+      user.sub,
+      req.params.groupId,
+      {
+        buffer: req.file.buffer,
+        mimeType: req.file.mimetype || 'application/octet-stream',
+        fileName: req.file.originalname || 'attachment',
+        body: typeof req.body?.body === 'string' ? req.body.body : '',
+      },
+    )
+    emitChatGroupMessage(message)
+    res.status(201).json({ data: message })
+  }),
+)
+
+chatRouter.post(
+  '/chat/groups/:groupId/read',
+  asyncHandler(authenticate),
+  requireFeatures(AppFeature.CHAT),
+  asyncHandler(async (req, res) => {
+    const { user } = req as AuthenticatedRequest
+    const result = await markChatGroupRead(requireOrgId(req), user.sub, req.params.groupId)
+    emitChatGroupRead(req.params.groupId, user.sub, result)
+    res.json({ data: result })
   }),
 )
 

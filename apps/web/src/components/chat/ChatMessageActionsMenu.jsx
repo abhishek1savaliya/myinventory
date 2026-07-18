@@ -10,6 +10,7 @@ export function ChatMessageActionsMenu({
   isMine,
   canReply = true,
   canForward = true,
+  canDeleteForMe = true,
   canDeleteForEveryone,
   onReply,
   onForward,
@@ -50,7 +51,9 @@ export function ChatMessageActionsMenu({
     items.push({ id: 'forward', label: 'Forward', onClick: onForward })
   }
 
-  items.push({ id: 'delete-me', label: 'Delete for me', onClick: onDeleteForMe, danger: true })
+  if (canDeleteForMe) {
+    items.push({ id: 'delete-me', label: 'Delete for me', onClick: onDeleteForMe, danger: true })
+  }
 
   if (isMine && canDeleteForEveryone) {
     items.push({

@@ -93,6 +93,7 @@ model Organization {
   products   Product[]
   warehouses Warehouse[]
   chatMessages ChatMessage[]
+  chatGroups ChatGroup[]
 
   @@index([orgCode])
   @@index([slug])
@@ -118,6 +119,8 @@ model User {
   disableRequestsMade    UserDisableRequest[] @relation("DisableRequester")
   chatMessagesSent       ChatMessage[]        @relation("ChatSender")
   chatMessagesReceived   ChatMessage[]        @relation("ChatRecipient")
+  chatGroupsCreated      ChatGroup[]          @relation("ChatGroupCreator")
+  chatGroupMemberships   ChatGroupMember[]
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -313,7 +316,8 @@ model ChatMessage {
   id                 String               @id @default(cuid())
   organizationId     String               @map("organization_id")
   senderId           String               @map("sender_id")
-  recipientId        String               @map("recipient_id")
+  recipientId        String?              @map("recipient_id")
+  groupId            String?              @map("group_id")
   body               String               @default("")
   attachmentType     ChatAttachmentType?  @map("attachment_type")
   attachmentUrl      String?              @map("attachment_url")
@@ -331,7 +335,8 @@ model ChatMessage {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   sender       User         @relation("ChatSender", fields: [senderId], references: [id], onDelete: Restrict)
-  recipient    User         @relation("ChatRecipient", fields: [recipientId], references: [id], onDelete: Restrict)
+  recipient    User?        @relation("ChatRecipient", fields: [recipientId], references: [id], onDelete: Restrict)
+  group        ChatGroup?   @relation(fields: [groupId], references: [id], onDelete: Cascade)
   replyTo      ChatMessage? @relation("ChatReply", fields: [replyToMessageId], references: [id], onDelete: SetNull)
   replies      ChatMessage[] @relation("ChatReply")
   forwardedFrom ChatMessage? @relation("ChatForward", fields: [forwardedFromId], references: [id], onDelete: SetNull)
@@ -340,6 +345,41 @@ model ChatMessage {
   @@index([organizationId])
   @@index([senderId, recipientId])
   @@index([recipientId, readAt])
+  @@index([groupId, createdAt])
   @@index([createdAt])
   @@map("chat_messages")
+}
+
+model ChatGroup {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  name           String
+  createdById    String   @map("created_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  createdBy    User             @relation("ChatGroupCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  members      ChatGroupMember[]
+  messages     ChatMessage[]
+
+  @@index([organizationId])
+  @@index([createdById])
+  @@map("chat_groups")
+}
+
+model ChatGroupMember {
+  id         String    @id @default(cuid())
+  groupId    String    @map("group_id")
+  userId     String    @map("user_id")
+  canSend    Boolean   @default(true) @map("can_send")
+  lastReadAt DateTime? @map("last_read_at")
+  joinedAt   DateTime  @default(now()) @map("joined_at")
+
+  group ChatGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId])
+  @@map("chat_group_members")
 }

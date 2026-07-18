@@ -1,6 +1,8 @@
 import type { ChatMessage } from '@prisma/client'
 import type {
   ChatConversationSummary,
+  ChatGroupDto,
+  ChatGroupMemberDto,
   ChatMessageDto,
   ChatUserSummary,
 } from '@myinventory/shared'
@@ -19,7 +21,7 @@ type MessageSource = ChatMessage & {
   hiddenForSenderAt?: Date | null
   hiddenForRecipientAt?: Date | null
   sender?: { id?: string; name: string }
-  recipient?: { name: string }
+  recipient?: { name: string } | null
   replyTo?:
     | (ChatMessage & {
         deletedForEveryoneAt?: Date | null
@@ -52,7 +54,8 @@ export function mapChatMessageToDto(message: MessageSource): ChatMessageDto {
   return {
     id: message.id,
     senderId: message.senderId,
-    recipientId: message.recipientId,
+    recipientId: message.recipientId ?? null,
+    groupId: message.groupId ?? null,
     body: isDeletedForEveryone ? '' : message.body,
     createdAt: message.createdAt.toISOString(),
     deliveredAt: message.deliveredAt?.toISOString() ?? null,
@@ -74,12 +77,66 @@ export function mapChatMessageToDto(message: MessageSource): ChatMessageDto {
 }
 
 export function isMessageHiddenForUser(
-  message: { senderId: string; recipientId: string; hiddenForSenderAt?: Date | null; hiddenForRecipientAt?: Date | null },
+  message: { senderId: string; recipientId: string | null; hiddenForSenderAt?: Date | null; hiddenForRecipientAt?: Date | null },
   userId: string,
 ): boolean {
   if (message.senderId === userId && message.hiddenForSenderAt) return true
   if (message.recipientId === userId && message.hiddenForRecipientAt) return true
   return false
+}
+
+type GroupMemberSource = {
+  canSend: boolean
+  joinedAt: Date
+  lastReadAt: Date | null
+  user: {
+    id: string
+    name: string
+    email: string
+    role: string
+    chatLastSeenAt?: Date | null
+  }
+}
+
+export function mapChatGroupMemberToDto(member: GroupMemberSource): ChatGroupMemberDto {
+  return {
+    user: mapChatUserToSummary(member.user),
+    canSend: member.canSend,
+    joinedAt: member.joinedAt.toISOString(),
+    lastReadAt: member.lastReadAt?.toISOString() ?? null,
+  }
+}
+
+export function mapChatGroupToDto(
+  group: {
+    id: string
+    organizationId: string
+    name: string
+    createdById: string
+    createdAt: Date
+    updatedAt: Date
+    members: GroupMemberSource[]
+  },
+  currentUserId: string,
+  options: {
+    lastMessage?: MessageSource | null
+    unreadCount?: number
+  } = {},
+): ChatGroupDto {
+  const members = group.members.map(mapChatGroupMemberToDto)
+
+  return {
+    id: group.id,
+    organizationId: group.organizationId,
+    name: group.name,
+    createdById: group.createdById,
+    createdAt: group.createdAt.toISOString(),
+    updatedAt: group.updatedAt.toISOString(),
+    members,
+    currentMember: members.find((member) => member.user.id === currentUserId) ?? null,
+    lastMessage: options.lastMessage ? mapChatMessageToDto(options.lastMessage) : null,
+    unreadCount: options.unreadCount ?? 0,
+  }
 }
 
 export function mapChatUserToSummary(user: {

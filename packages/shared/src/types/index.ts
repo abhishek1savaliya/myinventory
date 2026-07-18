@@ -63,7 +63,16 @@ export type {
   MoveStockResult,
 } from './inventory.js'
 export type { UserDisableRequestDto } from './users.js'
-export type { ChatUserSummary, ChatMessageDto, ChatConversationSummary, ChatDeliveryStatus, ChatMessageReplyPreview } from './chat.js'
+export type {
+  ChatUserSummary,
+  ChatMessageDto,
+  ChatConversationSummary,
+  ChatDeliveryStatus,
+  ChatMessageReplyPreview,
+  ChatGroupMemberDto,
+  ChatGroupDto,
+  ChatGroupReadResult,
+} from './chat.js'
 export {
   ChatAttachmentType,
   CHAT_MAX_IMAGE_BYTES,

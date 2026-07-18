@@ -1,12 +1,26 @@
 import type { Server as HttpServer } from 'http'
 import { Server } from 'socket.io'
 import type { Socket } from 'socket.io'
-import { AppFeature, getEffectiveFeatures, sendChatMessageSchema } from '@myinventory/shared'
-import type { ChatMessageDto } from '@myinventory/shared'
+import {
+  AppFeature,
+  getEffectiveFeatures,
+  sendChatGroupMessageSchema,
+  sendChatMessageSchema,
+} from '@myinventory/shared'
+import type { ChatGroupDto, ChatGroupReadResult, ChatMessageDto } from '@myinventory/shared'
 import { prisma } from '@myinventory/prisma'
 import { loadSession } from '../../lib/session-storage.js'
 import { verifyAccessToken } from '../../utils/jwt.js'
-import { markConversationRead, markMessageDelivered, recordChatLastSeen, sendChatMessage, getOrgChatLastSeenMap } from './chat.service.js'
+import {
+  getChatGroupIdsForUser,
+  getOrgChatLastSeenMap,
+  markChatGroupRead,
+  markConversationRead,
+  markMessageDelivered,
+  recordChatLastSeen,
+  sendChatGroupMessage,
+  sendChatMessage,
+} from './chat.service.js'
 
 interface ChatSocketUser {
   sub: string
@@ -166,6 +180,9 @@ export function initChatSocket(httpServer: HttpServer): Server {
     socket.data.inChat = false
     void socket.join(`user:${user.sub}`)
     void socket.join(`org:${user.orgId}`)
+    void getChatGroupIdsForUser(user.orgId, user.sub).then((groupIds) =>
+      socket.join(groupIds.map((groupId) => `chat-group:${groupId}`)),
+    )
 
     void getOrgChatLastSeenMap(user.orgId).then((lastSeenByUserId) => {
       socket.emit('chat:presence:sync', {
@@ -229,6 +246,44 @@ export function initChatSocket(httpServer: HttpServer): Server {
       }
     })
 
+    socket.on('chat:group:send', async (payload, ack) => {
+      try {
+        const parsed = sendChatGroupMessageSchema.safeParse(payload)
+        if (!parsed.success) {
+          ack?.({ ok: false, error: 'Invalid group message payload' })
+          return
+        }
+
+        const message = await sendChatGroupMessage(
+          user.orgId,
+          user.sub,
+          parsed.data.groupId,
+          parsed.data.body,
+          parsed.data.replyToMessageId,
+        )
+        emitChatGroupMessage(message)
+        ack?.({ ok: true, data: message })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to send group message'
+        ack?.({ ok: false, error: message })
+      }
+    })
+
+    socket.on('chat:group:mark-read', async (payload, ack) => {
+      try {
+        if (!payload || typeof payload.groupId !== 'string') {
+          ack?.({ ok: false, error: 'Invalid group read payload' })
+          return
+        }
+        const result = await markChatGroupRead(user.orgId, user.sub, payload.groupId)
+        emitChatGroupRead(payload.groupId, user.sub, result)
+        ack?.({ ok: true, data: result })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to mark group messages read'
+        ack?.({ ok: false, error: message })
+      }
+    })
+
     socket.on('chat:delivered', async (payload) => {
       if (!payload || typeof payload.messageId !== 'string') return
 
@@ -246,10 +301,76 @@ export function initChatSocket(httpServer: HttpServer): Server {
 }
 
 export function emitChatMessage(message: ChatMessageDto): void {
-  if (!chatIo) return
+  if (!chatIo || !message.recipientId) return
 
   // Sender already gets the saved message from the send ack.
   chatIo.to(`user:${message.recipientId}`).emit('chat:message', message)
+}
+
+export function emitChatGroupMessage(message: ChatMessageDto): void {
+  if (!chatIo || !message.groupId) return
+
+  chatIo
+    .to(`chat-group:${message.groupId}`)
+    .except(`user:${message.senderId}`)
+    .emit('chat:group:message', message)
+}
+
+export function emitChatGroupRead(
+  groupId: string,
+  readerId: string,
+  result: ChatGroupReadResult,
+): void {
+  if (!chatIo || result.count === 0) return
+
+  chatIo.to(`chat-group:${groupId}`).emit('chat:group:read', {
+    groupId,
+    readerId,
+    ...result,
+  })
+}
+
+export function emitChatGroupMembershipUpdated(input: {
+  groupId: string
+  group: ChatGroupDto
+  addedUserIds: string[]
+  removedUserIds: string[]
+  canSendUpdates?: Array<{ userId: string; canSend: boolean }>
+  actorId: string
+}): void {
+  if (!chatIo) return
+
+  const room = `chat-group:${input.groupId}`
+  const payload = {
+    groupId: input.groupId,
+    group: input.group,
+    actorId: input.actorId,
+    addedUserIds: input.addedUserIds,
+    removedUserIds: input.removedUserIds,
+    canSendUpdates: input.canSendUpdates ?? [],
+  }
+
+  chatIo.to(room).emit('chat:group:membership-updated', payload)
+
+  for (const userId of input.addedUserIds) {
+    const sockets = chatIo.sockets.adapter.rooms.get(`user:${userId}`)
+    for (const socketId of sockets ?? []) {
+      const socket = chatIo.sockets.sockets.get(socketId)
+      void socket?.join(room)
+      socket?.emit('chat:group:membership-updated', payload)
+    }
+  }
+
+  for (const userId of input.removedUserIds) {
+    const sockets = chatIo.sockets.adapter.rooms.get(`user:${userId}`)
+    for (const socketId of sockets ?? []) {
+      const socket = chatIo.sockets.sockets.get(socketId)
+      if (!socket?.rooms.has(room)) {
+        socket?.emit('chat:group:membership-updated', payload)
+      }
+      void socket?.leave(room)
+    }
+  }
 }
 
 export function emitChatRead(

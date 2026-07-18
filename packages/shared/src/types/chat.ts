@@ -28,7 +28,8 @@ export interface ChatMessageReplyPreview {
 export interface ChatMessageDto {
   id: string
   senderId: string
-  recipientId: string
+  recipientId: string | null
+  groupId: string | null
   body: string
   createdAt: string
   deliveredAt: string | null
@@ -104,4 +105,30 @@ export interface ChatConversationSummary {
   partnerRole: string
   lastMessage: ChatMessageDto | null
   unreadCount: number
+}
+
+export interface ChatGroupMemberDto {
+  user: ChatUserSummary
+  canSend: boolean
+  joinedAt: string
+  lastReadAt: string | null
+}
+
+export interface ChatGroupDto {
+  id: string
+  organizationId: string
+  name: string
+  createdById: string
+  createdAt: string
+  updatedAt: string
+  members: ChatGroupMemberDto[]
+  currentMember: ChatGroupMemberDto | null
+  lastMessage: ChatMessageDto | null
+  unreadCount: number
+}
+
+export interface ChatGroupReadResult {
+  count: number
+  messageIds: string[]
+  readAt: string
 }
