@@ -24,12 +24,22 @@ export function LoginPage() {
   const [error, setError] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  const [orgDisabledMessage, setOrgDisabledMessage] = useState(null)
+
   useEffect(() => {
     if (!orgSlug) return
 
     apiFetch(`/api/organizations/by-slug/${orgSlug}`)
-      .then((response) => setOrgProfile(response.data))
-      .catch(() => setOrgProfile(null))
+      .then((response) => {
+        setOrgProfile(response.data)
+        setOrgDisabledMessage(null)
+      })
+      .catch((err) => {
+        setOrgProfile(null)
+        if (err instanceof ApiRequestError && err.statusCode === 403) {
+          setOrgDisabledMessage(err.message)
+        }
+      })
   }, [orgSlug])
 
   useEffect(() => {
@@ -40,6 +50,30 @@ export function LoginPage() {
 
   if (!isLoading && isAuthenticated) {
     return null
+  }
+
+  if (orgDisabledMessage) {
+    return (
+      <div className="flex h-full min-h-dvh items-center justify-center p-4 sm:p-6" style={{ backgroundColor: 'var(--color-background)' }}>
+        <Card className="w-full max-w-md shadow-lg">
+          <CardHeader className="text-center">
+            <CardTitle>Organization unavailable</CardTitle>
+            <CardDescription>{orgDisabledMessage}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-center">
+            <Button asChild className="w-full">
+              <Link href="/signup">Create a new organization</Link>
+            </Button>
+            <p className="text-sm text-muted">
+              Or{' '}
+              <Link href="/" className="text-primary hover:underline">
+                go back to the home page
+              </Link>
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   async function handleSubmit(event) {

@@ -100,10 +100,21 @@ export async function signupOrganization(
   }
 }
 
+const DISABLED_ORG_MESSAGE =
+  'This organization does not exist. Create a new organization or contact the system admin.'
+
+async function isOrganizationDisabled(organizationId: string): Promise<boolean> {
+  const activeCount = await prisma.user.count({
+    where: { organizationId, status: 'ACTIVE' },
+  })
+  return activeCount === 0
+}
+
 export async function getOrganizationPublicProfile(slug: string): Promise<OrganizationPublicProfile> {
   const organization = await prisma.organization.findUnique({
     where: { slug: slug.toLowerCase().trim() },
     select: {
+      id: true,
       slug: true,
       name: true,
       tradingName: true,
@@ -115,6 +126,10 @@ export async function getOrganizationPublicProfile(slug: string): Promise<Organi
 
   if (!organization) {
     throw new AppError(404, 'Organization not found')
+  }
+
+  if (await isOrganizationDisabled(organization.id)) {
+    throw new AppError(403, DISABLED_ORG_MESSAGE)
   }
 
   return mapOrganizationToPublicProfile(organization)
@@ -197,9 +212,15 @@ export async function updateOrganizationBranding(
 }
 
 export async function findOrganizationByOrgCode(orgCode: string) {
-  return prisma.organization.findUnique({
+  const organization = await prisma.organization.findUnique({
     where: { orgCode: orgCode.toUpperCase().trim() },
   })
+
+  if (organization && (await isOrganizationDisabled(organization.id))) {
+    throw new AppError(403, DISABLED_ORG_MESSAGE)
+  }
+
+  return organization
 }
 
 export async function searchOrganizations(query: string) {
@@ -213,6 +234,7 @@ export async function searchOrganizations(query: string) {
 
   const organizations = await prisma.organization.findMany({
     where: {
+      users: { some: { status: 'ACTIVE' } },
       OR: [
         { name: { contains: q, mode: 'insensitive' } },
         { tradingName: { contains: q, mode: 'insensitive' } },
