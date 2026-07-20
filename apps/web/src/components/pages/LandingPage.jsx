@@ -338,6 +338,9 @@ export function LandingPage() {
             <Link href="/signup" className="text-[var(--color-primary)] hover:underline">
               Register
             </Link>
+            <Link href="/systemadmin" className="text-[var(--color-primary)] hover:underline">
+              System Admin
+            </Link>
             {!isLoading && isAuthenticated && dashboardHref && (
               <Link href={dashboardHref} className="text-[var(--color-primary)] hover:underline">
                 Dashboard

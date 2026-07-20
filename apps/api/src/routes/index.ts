@@ -9,10 +9,12 @@ import { inventoryRouter } from '../modules/inventory/inventory.routes.js'
 import { transactionsRouter } from '../modules/transactions/transactions.routes.js'
 import { organizationsRouter } from '../modules/organizations/organizations.routes.js'
 import { chatRouter } from '../modules/chat/chat.routes.js'
+import { systemAdminRouter } from '../modules/system-admin/system-admin.routes.js'
 export const apiRouter = Router()
 
 apiRouter.use(healthRouter)
 apiRouter.use(organizationsRouter)
+apiRouter.use('/system-admin', systemAdminRouter)
 apiRouter.use(authRouter)
 apiRouter.use(usersRouter)
 apiRouter.use(productsRouter)
